@@ -11,6 +11,8 @@ from toy_tls.enum_with_data import EnumUInt8WithData
 
 class EllipticCurvePointFormat(EnumUInt8WithData):
     uncompressed = 0
+    ansiX962_compressed_prime = 1
+    ansiX962_compressed_char2 = 2
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)
