@@ -2,7 +2,7 @@ from __future__ import generator_stop
 
 import struct
 from abc import ABCMeta, abstractmethod
-from typing import Type, ClassVar, Sequence
+from typing import Type, ClassVar, Sequence, Optional
 
 from attr import attrs
 
@@ -74,17 +74,24 @@ class ServerNameList(ExtensionData):
         )
 
     type = 0
-    names: Sequence[ServerName]
+    names: Optional[Sequence[ServerName]]
 
     @classmethod
     def decode(cls, reader: DataReader) -> 'ServerNameList':
+        # When this extension is in ServerHello, it may have no data at all.
+        if reader.at_end_of_data:
+            return ServerNameList(names=None)
+
         names_length = reader.read_uint16()
         names = reader.limited(names_length).read_sequence(ServerName)
         return ServerNameList(names=names)
 
     def encode(self) -> bytes:
+        # When this extension is in ServerHello, it may have no data at all.
+        if self.names is None:
+            return b''
+
         buffer = bytearray()
         for name in self.names:
             buffer.extend(name.encode())
         return struct.pack('>H', len(buffer)) + bytes(buffer)
-
