@@ -35,7 +35,7 @@ class HandshakeMessageData(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError
 
 
@@ -48,8 +48,8 @@ class HelloRequest(HandshakeMessageData):
     def decode(cls, reader: DataReader) -> 'HelloRequest':
         return HelloRequest()
 
-    def encode(self) -> bytes:
-        return b''
+    def encode(self, writer: DataWriter):
+        pass
 
 
 class ExtensionType(EnumUInt16WithData):
@@ -98,15 +98,11 @@ class Extension:
             data=extension_type.data_type.decode(reader.limited(extension_data_length)),
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
-
+    def encode(self, writer: DataWriter):
         writer.write(self.type)
 
         with writer.length_uint16():
             writer.write(self.data)
-
-        return writer.to_bytes()
 
 
 # Sent by the client at start or to initiate/reply to renegotiation
@@ -149,9 +145,7 @@ class ClientHello(HandshakeMessageData):
             extensions=extensions,
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
-
+    def encode(self, writer: DataWriter):
         writer.write(self.client_version)
         writer.write_bytes(self.random)
 
@@ -170,8 +164,6 @@ class ClientHello(HandshakeMessageData):
             with writer.length_uint16():
                 for extension in self.extensions:
                     writer.write(extension)
-
-        return writer.to_bytes()
 
 
 # Sent by the server after server has chosen cipher suite, compression method, extensions
@@ -211,9 +203,7 @@ class ServerHello(HandshakeMessageData):
             extensions=extensions,
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
-
+    def encode(self, writer: DataWriter):
         writer.write(self.server_version)
         writer.write_bytes(self.random)
 
@@ -227,8 +217,6 @@ class ServerHello(HandshakeMessageData):
             with writer.length_uint16():
                 for extension in self.extensions:
                     writer.write(extension)
-
-        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -249,13 +237,11 @@ class PeerCertificate(HandshakeMessageData):
             certs.append(cert)
         return PeerCertificate(certificate_list=tuple(certs))
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_uint24():
             for c in self.certificate_list:
                 with writer.length_uint24():
                     writer.write_bytes(c.public_bytes(Encoding.DER))
-        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -268,8 +254,8 @@ class ServerKeyExchange(HandshakeMessageData):
     def decode(cls, reader: DataReader) -> 'ServerKeyExchange':
         return ServerKeyExchange(raw_data=reader.read_bytes_to_end())
 
-    def encode(self) -> bytes:
-        return self.raw_data
+    def encode(self, writer: DataWriter):
+        writer.write_bytes(self.raw_data)
 
 
 class ServerHelloDone(HandshakeMessageData):
@@ -279,8 +265,8 @@ class ServerHelloDone(HandshakeMessageData):
     def decode(cls, reader: DataReader) -> 'ServerHelloDone':
         return ServerHelloDone()
 
-    def encode(self) -> bytes:
-        return b''
+    def encode(self, writer: DataWriter):
+        pass
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -293,8 +279,8 @@ class ClientKeyExchange(HandshakeMessageData):
     def decode(cls, reader: DataReader) -> 'ClientKeyExchange':
         return ClientKeyExchange(raw_data=reader.read_bytes_to_end())
 
-    def encode(self) -> bytes:
-        return self.raw_data
+    def encode(self, writer: DataWriter):
+        writer.write_bytes(self.raw_data)
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -307,8 +293,8 @@ class Finished(HandshakeMessageData):
     def decode(cls, reader: DataReader) -> 'Finished':
         return Finished(verify_data=reader.read_bytes_to_end())
 
-    def encode(self) -> bytes:
-        return self.verify_data
+    def encode(self, writer: DataWriter):
+        writer.write_bytes(self.verify_data)
 
 
 class HandshakeMessageType(EnumUInt8WithData):
@@ -356,10 +342,7 @@ class HandshakeMessage(ContentMessage):
             data=message_type.data_type.decode(reader),
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
-
+    def encode(self, writer: DataWriter):
         writer.write(self.message_type)
         with writer.length_uint24():
             writer.write(self.data)
-        return writer.to_bytes()

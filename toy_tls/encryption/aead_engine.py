@@ -57,7 +57,7 @@ class AESGCMTLSRecordEncoder(TLSRecordEncoder):
         self.cipher = AESGCM(key)
         self.salt = salt
 
-    def encode(self, sequence_number: int, record: TLSPlaintextRecord) -> bytes:
+    def encode(self, sequence_number: int, record: TLSPlaintextRecord, writer: DataWriter):
         nonce_explicit = pack('>Q', sequence_number)
         encrypted_data = self.cipher.encrypt(
             nonce=self.salt + nonce_explicit,
@@ -70,14 +70,11 @@ class AESGCMTLSRecordEncoder(TLSRecordEncoder):
             ),
         )
 
-        writer = DataWriter()
         writer.write(record.content_type)
         writer.write(record.protocol_version)
         with writer.length_uint16():
             writer.write_bytes(nonce_explicit)
             writer.write_bytes(encrypted_data)
-
-        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)
@@ -144,7 +141,7 @@ class ChaCha20Poly1305TLSRecordEncoder(TLSRecordEncoder):
         self.cipher = ChaCha20Poly1305(key)
         self.iv = iv
 
-    def encode(self, sequence_number: int, record: TLSPlaintextRecord) -> bytes:
+    def encode(self, sequence_number: int, record: TLSPlaintextRecord, writer: DataWriter):
         encrypted_data = self.cipher.encrypt(
             nonce=_chacha20_poly1305_nonce(sequence_number=sequence_number, iv=self.iv),
             data=record.data,
@@ -156,13 +153,10 @@ class ChaCha20Poly1305TLSRecordEncoder(TLSRecordEncoder):
             ),
         )
 
-        writer = DataWriter()
         writer.write(record.content_type)
         writer.write(record.protocol_version)
         with writer.length_uint16():
             writer.write_bytes(encrypted_data)
-
-        return writer.to_bytes()
 
 
 class ChaCha20Poly1305Engine(AEADEngine):

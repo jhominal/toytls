@@ -21,7 +21,7 @@ class ServerNameData(metaclass=ABCMeta):
         raise NotImplementedError()
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError()
 
 
@@ -35,11 +35,9 @@ class HostName(ServerNameData):
         data_length = data_reader.read_uint16()
         return HostName(data=data_reader.read_bytes(data_length))
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_uint16():
             writer.write_bytes(self.data)
-        return writer.to_bytes()
 
 
 class NameType(EnumUInt8WithData):
@@ -64,11 +62,9 @@ class ServerName:
             data=name_data,
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         writer.write(self.type)
         writer.write(self.data)
-        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)
@@ -92,13 +88,11 @@ class ServerNameList(ExtensionData):
         names = reader.limited(names_length).read_sequence(ServerName)
         return ServerNameList(names=names)
 
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         # When this extension is in ServerHello, it may have no data at all.
         if self.names is None:
-            return b''
+            return
 
-        writer = DataWriter()
         with writer.length_uint16():
             for name in self.names:
                 writer.write(name)
-        return writer.to_bytes()

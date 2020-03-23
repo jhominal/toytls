@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.hmac import HMAC
 from toy_tls._cipher_suites import IncompatiblePublicKeyError
 from toy_tls._common import ProtocolVersion
 from toy_tls._data_reader import FullDataReader
+from toy_tls._data_writer import DataWriter, SupportsEncode
 from toy_tls._tls_record import TLSPlaintextRecord, TLSRecordEncoder, InitialTLSRecordEncoder, TLSRecordDecoder, \
     TLSRecordHeader, InitialTLSRecordDecoder
 from toy_tls.content import ContentMessage, ContentType, ApplicationDataMessage
@@ -56,6 +57,12 @@ def run_prf(hash_algorithm: HashAlgorithm, secret: bytes, label: bytes, seed: by
         buf.extend(hmac_p.finalize())
 
     return bytes(buf[:length])
+
+
+def get_encoded_bytes(value: SupportsEncode) -> bytes:
+    writer = DataWriter()
+    writer.write(value)
+    return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -101,7 +108,7 @@ class TLSNegotiationState:
     def compute_handshake_messages_hash(self) -> bytes:
         hash_context = Hash(algorithm=self.cipher_suite.hash_for_prf, backend=default_backend())
         for message in self.handshake_messages:
-            hash_context.update(message.encode())
+            hash_context.update(get_encoded_bytes(message))
         return hash_context.finalize()
 
 
@@ -195,7 +202,7 @@ class TLSConnection:
     async def _send_message(self, message: ContentMessage, protocol_version: Optional[ProtocolVersion] = None):
         if isinstance(message, HandshakeMessage):
             self.negotiation_state.handshake_messages.append(message)
-        message_bytes = message.encode()
+        message_bytes = get_encoded_bytes(message)
         record = TLSPlaintextRecord(
             content_type=message.type,
             protocol_version=protocol_version or self.protocol_version,
@@ -204,12 +211,14 @@ class TLSConnection:
         await self._send_tls_record(record)
 
     async def _send_tls_record(self, record: TLSPlaintextRecord):
-        record_bytes = self.encoder.encode(
+        writer = DataWriter()
+        self.encoder.encode(
             sequence_number=self.next_sequence_number_to_send,
             record=record,
+            writer=writer,
         )
         self.next_sequence_number_to_send += 1
-        self.writer.write(record_bytes)
+        self.writer.write(writer.to_bytes())
 
     async def _wait_for_next_messages(self) -> Sequence[ContentMessage]:
         next_messages = []
@@ -335,7 +344,7 @@ class TLSConnection:
         await self._send_message(
             HandshakeMessage(
                 message_type=HandshakeMessageType.client_key_exchange,
-                data=ClientKeyExchange(raw_data=key_exchange.client_key_exchange_parameters.encode()),
+                data=ClientKeyExchange(raw_data=get_encoded_bytes(key_exchange.client_key_exchange_parameters)),
             )
         )
 

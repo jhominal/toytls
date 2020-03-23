@@ -5,6 +5,7 @@ from typing import Optional, Sequence
 from attr import attrs, attrib
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content import ContentType, ContentMessage
 from toy_tls.enum_with_data import EnumUInt8WithData
 
@@ -28,5 +29,5 @@ class ChangeCipherSpecMessage(ContentMessage):
             message_type=ChangeCipherSpecMessageType.decode(reader),
         )
 
-    def encode(self) -> bytes:
-        return bytes([self.message_type.value])
+    def encode(self, writer: DataWriter):
+        writer.write(self.message_type)

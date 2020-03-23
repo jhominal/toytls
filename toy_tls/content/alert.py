@@ -5,6 +5,7 @@ from typing import Optional, Sequence
 from attr import attrs
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content import ContentType, ContentMessage
 from toy_tls.enum_with_data import EnumUInt8WithData
 
@@ -60,5 +61,6 @@ class AlertMessage(ContentMessage):
             description=AlertDescription.decode(reader),
         )
 
-    def encode(self) -> bytes:
-        return self.level.encode() + self.description.encode()
+    def encode(self, writer: DataWriter):
+        writer.write(self.level)
+        writer.write(self.description)

@@ -40,7 +40,7 @@ class TLSRecordEncoder(metaclass=ABCMeta):
     __slots__ = ()
 
     @abstractmethod
-    def encode(self, sequence_number: int, record: TLSPlaintextRecord) -> bytes:
+    def encode(self, sequence_number: int, record: TLSPlaintextRecord, writer: DataWriter):
         raise NotImplementedError
 
 
@@ -53,13 +53,11 @@ class TLSRecordDecoder(metaclass=ABCMeta):
 
 
 class InitialTLSRecordEncoder(TLSRecordEncoder):
-    def encode(self, sequence_number, record: TLSPlaintextRecord) -> bytes:
-        writer = DataWriter()
+    def encode(self, sequence_number, record: TLSPlaintextRecord, writer: DataWriter):
         writer.write(record.content_type)
         writer.write(record.protocol_version)
         with writer.length_uint16():
             writer.write_bytes(record.data)
-        return writer.to_bytes()
 
 
 class InitialTLSRecordDecoder(TLSRecordDecoder):

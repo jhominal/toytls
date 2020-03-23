@@ -152,12 +152,10 @@ class NamedCurveList(ExtensionData):
             supported_curves=reader.limited(length).read_sequence(NamedCurve),
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_uint16():
             for c in self.supported_curves:
                 writer.write(c)
-        return writer.to_bytes()
 
 
 NamedCurveList.ALL = NamedCurveList(supported_curves=tuple((c for c in NamedCurve if c.supported)))

@@ -12,7 +12,7 @@ class IntFieldOverflow(Exception):
 
 
 class SupportsEncode(Protocol):
-    def encode(self) -> bytes:
+    def encode(self, writer: 'DataWriter'):
         raise NotImplementedError
 
 
@@ -25,7 +25,7 @@ class DataWriter:
     _buffer: bytearray = attrib(init=False, factory=bytearray)
 
     def write(self, v: SupportsEncode):
-        self._buffer.extend(v.encode())
+        v.encode(self)
 
     def write_byte(self, v: int):
         if v > 0xFF:

@@ -6,6 +6,7 @@ from typing import ClassVar
 from attr import attrs, attrib
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.validation import bounded_bytes
 
 
@@ -20,7 +21,7 @@ class ExtensionData(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError
 
 
@@ -32,5 +33,5 @@ class UnknownExtension(ExtensionData):
     def decode(cls, reader: DataReader) -> 'UnknownExtension':
         return UnknownExtension(bytes=reader.read_bytes_to_end())
 
-    def encode(self) -> bytes:
-        return self.bytes
+    def encode(self, writer: DataWriter):
+        writer.write_bytes(self.bytes)

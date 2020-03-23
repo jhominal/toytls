@@ -33,7 +33,7 @@ class ClientKeyExchangeParameters(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError
 
 
@@ -50,7 +50,7 @@ class ServerKeyExchangeParameters(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError
 
     @abstractmethod
@@ -87,25 +87,21 @@ class ServerECDHParameters(ServerKeyExchangeParameters):
             signature=DigitalSignature.decode(reader),
         )
 
-    def encode_params(self) -> bytes:
-        writer = DataWriter()
+    def encode_params(self, writer: DataWriter):
         writer.write(self.curve_type)
         writer.write(self.curve_data)
         with writer.length_byte():
             writer.write_bytes(self.public_key_bytes)
-        return writer.to_bytes()
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
-        writer.write_bytes(self.encode_params())
+    def encode(self, writer: DataWriter):
+        self.encode_params(writer)
         writer.write(self.signature)
-        return writer.to_bytes()
 
     def verify_signature(self, server_public_key, client_random: bytes, server_random: bytes):
         writer = DataWriter()
         writer.write_bytes(client_random)
         writer.write_bytes(server_random)
-        writer.write_bytes(self.encode_params())
+        self.encode_params(writer)
         return self.signature.verify(public_key=server_public_key, data=writer.to_bytes())
 
     def execute_key_exchange(self) -> KeyExchangeResult:
@@ -127,11 +123,9 @@ class ClientECDHParameters(ClientKeyExchangeParameters):
         bytes_len = reader.read_byte()
         return ClientECDHParameters(public_key_bytes=reader.read_bytes(bytes_len))
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_byte():
             writer.write_bytes(self.public_key_bytes)
-        return writer.to_bytes()
 
 
 class KeyExchangeAlgorithm(Enum):

@@ -6,6 +6,7 @@ from typing import ClassVar, Optional, Union, Sequence
 from attr import attrs
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.enum_with_data import EnumUInt8WithData
 
 
@@ -31,7 +32,7 @@ class ContentMessage(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def encode(self) -> bytes:
+    def encode(self, writer: DataWriter):
         raise NotImplementedError
 
 
@@ -50,5 +51,5 @@ class ApplicationDataMessage(ContentMessage):
     def decode(cls, reader: DataReader) -> 'ApplicationDataMessage':
         return ApplicationDataMessage(reader.read_bytes_to_end())
 
-    def encode(self):
-        return self.data
+    def encode(self, writer: DataWriter):
+        writer.write_bytes(self.data)

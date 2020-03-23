@@ -1,9 +1,9 @@
 from __future__ import generator_stop
 
 from enum import Enum
-from struct import pack
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 
 
 class EnumWithData(Enum):
@@ -31,8 +31,8 @@ class EnumUInt8WithData(EnumWithData):
     def decode(cls, reader: DataReader):
         return cls(reader.read_byte())
 
-    def encode(self) -> bytes:
-        return bytes([self.value])
+    def encode(self, writer: DataWriter):
+        writer.write_byte(self.value)
 
 
 class EnumUInt16WithData(EnumWithData):
@@ -45,5 +45,5 @@ class EnumUInt16WithData(EnumWithData):
     def decode(cls, reader: DataReader):
         return cls(reader.read_uint16())
 
-    def encode(self) -> bytes:
-        return pack('>H', self.value)
+    def encode(self, writer: DataWriter):
+        writer.write_uint16(self.value)

@@ -29,9 +29,7 @@ class EllipticCurvePointFormatList(ExtensionData):
             supported_formats=reader.limited(length).read_sequence(EllipticCurvePointFormat),
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_byte():
             for f in self.supported_formats:
                 writer.write(f)
-        return writer.to_bytes()

@@ -1,6 +1,7 @@
 from __future__ import generator_stop
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
 
 
@@ -11,5 +12,5 @@ class EncryptThenMac(ExtensionData):
     def decode(cls, reader: DataReader) -> 'EncryptThenMac':
         return EncryptThenMac()
 
-    def encode(self) -> bytes:
-        return b''
+    def encode(self, writer: DataWriter):
+        pass

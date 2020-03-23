@@ -146,12 +146,10 @@ class DigitalSignature:
             signature=reader.read_bytes(signature_length),
         )
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         writer.write(self.scheme)
         with writer.length_uint16():
             writer.write_bytes(self.signature)
-        return writer.to_bytes()
 
     def verify(self, public_key, data: bytes):
         self.scheme.verifier_factory(public_key=public_key).verify(signature=self.signature, data=data)
@@ -168,10 +166,7 @@ class SupportedSignatureAlgorithms(ExtensionData):
         algorithms = reader.limited(algorithms_byte_len).read_sequence(SignatureScheme)
         return SupportedSignatureAlgorithms(algorithms)
 
-    def encode(self) -> bytes:
-        writer = DataWriter()
+    def encode(self, writer: DataWriter):
         with writer.length_uint16():
             for alg in self.algorithms:
                 writer.write(alg)
-
-        return writer.to_bytes()
