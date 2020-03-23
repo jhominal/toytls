@@ -1,7 +1,7 @@
 from __future__ import generator_stop
 
 from abc import ABCMeta, abstractmethod
-from struct import pack, unpack_from
+from struct import unpack_from
 from typing import ClassVar, Sequence, Type, Optional, List
 
 from attr import attrs, attrib
@@ -13,6 +13,7 @@ from cryptography.x509 import Certificate, load_der_x509_certificate
 from toy_tls._cipher_suites import CipherSuite
 from toy_tls._common import ProtocolVersion, CompressionMethod
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content import ContentType, ContentMessage
 from toy_tls.content.extensions import ExtensionData, UnknownExtension
 from toy_tls.content.extensions.ec_points_formats import EllipticCurvePointFormatList
@@ -98,15 +99,14 @@ class Extension:
         )
 
     def encode(self) -> bytes:
-        buf = bytearray()
+        writer = DataWriter()
 
-        buf.extend(self.type.encode())
+        writer.write(self.type)
 
-        data_bytes = self.data.encode()
-        buf.extend(pack('>H', len(data_bytes)))
-        buf.extend(data_bytes)
+        with writer.length_uint16():
+            writer.write(self.data)
 
-        return bytes(buf)
+        return writer.to_bytes()
 
 
 # Sent by the client at start or to initiate/reply to renegotiation
@@ -150,34 +150,28 @@ class ClientHello(HandshakeMessageData):
         )
 
     def encode(self) -> bytes:
-        buf = bytearray()
+        writer = DataWriter()
 
-        buf.extend(self.client_version.encode())
-        buf.extend(self.random)
+        writer.write(self.client_version)
+        writer.write_bytes(self.random)
 
-        buf.extend(pack('B', len(self.session_id)))
-        buf.extend(self.session_id)
+        with writer.length_byte():
+            writer.write_bytes(self.session_id)
 
-        buf.extend(pack('>H', 2 * len(self.cipher_suites)))
-        for cs in self.cipher_suites:
-            buf.extend(cs.encode())
+        with writer.length_uint16():
+            for cs in self.cipher_suites:
+                writer.write(cs)
 
-        buf.extend(pack('B', len(self.compression_methods)))
-        for cm in self.compression_methods:
-            buf.extend(cm.encode())
+        with writer.length_byte():
+            for cm in self.compression_methods:
+                writer.write(cm)
 
         if len(self.extensions) > 0:
-            extensions_byte_length = 0
-            encoded_extensions = []
-            for extension in self.extensions:
-                encoded_extension = extension.encode()
-                encoded_extensions.append(encoded_extension)
-                extensions_byte_length += len(encoded_extension)
-            buf.extend(pack('>H', extensions_byte_length))
-            for encoded_extension in encoded_extensions:
-                buf.extend(encoded_extension)
+            with writer.length_uint16():
+                for extension in self.extensions:
+                    writer.write(extension)
 
-        return bytes(buf)
+        return writer.to_bytes()
 
 
 # Sent by the server after server has chosen cipher suite, compression method, extensions
@@ -218,29 +212,23 @@ class ServerHello(HandshakeMessageData):
         )
 
     def encode(self) -> bytes:
-        buf = bytearray()
+        writer = DataWriter()
 
-        buf.extend(self.server_version.encode())
-        buf.extend(self.random)
+        writer.write(self.server_version)
+        writer.write_bytes(self.random)
 
-        buf.extend(pack('B', len(self.session_id)))
-        buf.extend(self.session_id)
+        with writer.length_byte():
+            writer.write_bytes(self.session_id)
 
-        buf.extend(self.cipher_suite.encode())
-        buf.extend(self.compression_method.encode())
+        writer.write(self.cipher_suite)
+        writer.write(self.compression_method)
 
         if len(self.extensions) > 0:
-            extensions_byte_length = 0
-            encoded_extensions = []
-            for extension in self.extensions:
-                encoded_extension = extension.encode()
-                encoded_extensions.append(encoded_extension)
-                extensions_byte_length += len(encoded_extension)
-            buf.extend(pack('>H', extensions_byte_length))
-            for encoded_extension in encoded_extensions:
-                buf.extend(encoded_extension)
+            with writer.length_uint16():
+                for extension in self.extensions:
+                    writer.write(extension)
 
-        return bytes(buf)
+        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -262,18 +250,12 @@ class PeerCertificate(HandshakeMessageData):
         return PeerCertificate(certificate_list=tuple(certs))
 
     def encode(self) -> bytes:
-        buf = bytearray(3)
-        total_length = 0
-        for c in self.certificate_list:
-            cert_bytes = c.public_bytes(Encoding.DER)
-            cert_bytes_length = len(cert_bytes)
-            buf.extend(pack('>I', cert_bytes_length)[1:])
-            total_length += 3
-            buf.extend(cert_bytes)
-            total_length += cert_bytes_length
-        total_length_encoded = pack('>I', total_length)[1:]
-        buf[:3] = total_length_encoded
-        return bytes(buf)
+        writer = DataWriter()
+        with writer.length_uint24():
+            for c in self.certificate_list:
+                with writer.length_uint24():
+                    writer.write_bytes(c.public_bytes(Encoding.DER))
+        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -375,7 +357,9 @@ class HandshakeMessage(ContentMessage):
         )
 
     def encode(self) -> bytes:
-        message_byte_data = self.data.encode()
-        message_byte_size = len(message_byte_data)
-        encoded_message_byte_size: bytes = pack('>I', message_byte_size)[1:]
-        return self.message_type.encode() + encoded_message_byte_size + message_byte_data
+        writer = DataWriter()
+
+        writer.write(self.message_type)
+        with writer.length_uint24():
+            writer.write(self.data)
+        return writer.to_bytes()

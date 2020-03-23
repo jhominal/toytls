@@ -1,12 +1,12 @@
 from __future__ import generator_stop
 
-import struct
 from abc import ABCMeta, abstractmethod
 
 from attr import attrs, attrib
 
 from toy_tls._common import ProtocolVersion
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content import ContentType
 from toy_tls.validation import bounded_bytes
 
@@ -54,12 +54,12 @@ class TLSRecordDecoder(metaclass=ABCMeta):
 
 class InitialTLSRecordEncoder(TLSRecordEncoder):
     def encode(self, sequence_number, record: TLSPlaintextRecord) -> bytes:
-        buf = bytearray()
-        buf.extend(record.content_type.encode())
-        buf.extend(record.protocol_version.encode())
-        buf.extend(struct.pack('>H', len(record.data)))
-        buf.extend(record.data)
-        return bytes(buf)
+        writer = DataWriter()
+        writer.write(record.content_type)
+        writer.write(record.protocol_version)
+        with writer.length_uint16():
+            writer.write_bytes(record.data)
+        return writer.to_bytes()
 
 
 class InitialTLSRecordDecoder(TLSRecordDecoder):

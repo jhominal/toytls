@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 from toy_tls._common import ProtocolVersion
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls._tls_record import TLSRecordEncoder, TLSRecordDecoder, TLSRecordHeader, TLSPlaintextRecord
 from toy_tls.content import ContentType
 from toy_tls.encryption import EncryptionEngine
@@ -69,14 +70,14 @@ class AESGCMTLSRecordEncoder(TLSRecordEncoder):
             ),
         )
 
-        buf = bytearray()
-        buf.extend(record.content_type.encode())
-        buf.extend(record.protocol_version.encode())
-        buf.extend(pack('>H', len(nonce_explicit) + len(encrypted_data)))
-        buf.extend(nonce_explicit)
-        buf.extend(encrypted_data)
+        writer = DataWriter()
+        writer.write(record.content_type)
+        writer.write(record.protocol_version)
+        with writer.length_uint16():
+            writer.write_bytes(nonce_explicit)
+            writer.write_bytes(encrypted_data)
 
-        return bytes(buf)
+        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)
@@ -155,13 +156,13 @@ class ChaCha20Poly1305TLSRecordEncoder(TLSRecordEncoder):
             ),
         )
 
-        buf = bytearray()
-        buf.extend(record.content_type.encode())
-        buf.extend(record.protocol_version.encode())
-        buf.extend(pack('>H', len(encrypted_data)))
-        buf.extend(encrypted_data)
+        writer = DataWriter()
+        writer.write(record.content_type)
+        writer.write(record.protocol_version)
+        with writer.length_uint16():
+            writer.write_bytes(encrypted_data)
 
-        return bytes(buf)
+        return writer.to_bytes()
 
 
 class ChaCha20Poly1305Engine(AEADEngine):

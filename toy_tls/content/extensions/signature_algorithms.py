@@ -2,7 +2,6 @@ from __future__ import generator_stop
 
 from abc import ABCMeta, abstractmethod
 from functools import partial
-from struct import pack
 from typing import Sequence
 
 from attr import attrs, attrib
@@ -16,6 +15,7 @@ from cryptography.hazmat.primitives.hashes import SHA1, SHA256, SHA384, SHA512, 
 from typing_extensions import Protocol
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
 from toy_tls.enum_with_data import EnumUInt16WithData
 
@@ -147,11 +147,11 @@ class DigitalSignature:
         )
 
     def encode(self) -> bytes:
-        buf = bytearray()
-        buf.extend(self.scheme.encode())
-        buf.extend(pack('>H', len(self.signature)))
-        buf.extend(self.signature)
-        return bytes(buf)
+        writer = DataWriter()
+        writer.write(self.scheme)
+        with writer.length_uint16():
+            writer.write_bytes(self.signature)
+        return writer.to_bytes()
 
     def verify(self, public_key, data: bytes):
         self.scheme.verifier_factory(public_key=public_key).verify(signature=self.signature, data=data)
@@ -169,10 +169,9 @@ class SupportedSignatureAlgorithms(ExtensionData):
         return SupportedSignatureAlgorithms(algorithms)
 
     def encode(self) -> bytes:
-        buf = bytearray()
-        buf.extend(pack('>H', len(self.algorithms) * 2))
+        writer = DataWriter()
+        with writer.length_uint16():
+            for alg in self.algorithms:
+                writer.write(alg)
 
-        for alg in self.algorithms:
-            buf.extend(alg.encode())
-
-        return bytes(buf)
+        return writer.to_bytes()

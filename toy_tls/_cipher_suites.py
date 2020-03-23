@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.x448 import X448PublicKey
 from cryptography.hazmat.primitives.hashes import SHA256, SHA384, HashAlgorithm
 
 from toy_tls._data_reader import DataReader, SupportsDecode
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions.elliptic_curves import NamedCurve
 from toy_tls.content.extensions.signature_algorithms import DigitalSignature
 from toy_tls.encryption import EncryptionEngine
@@ -87,25 +88,25 @@ class ServerECDHParameters(ServerKeyExchangeParameters):
         )
 
     def encode_params(self) -> bytes:
-        buf = bytearray()
-        buf.extend(self.curve_type.encode())
-        buf.extend(self.curve_data.encode())
-        buf.append(len(self.public_key_bytes))
-        buf.extend(self.public_key_bytes)
-        return bytes(buf)
+        writer = DataWriter()
+        writer.write(self.curve_type)
+        writer.write(self.curve_data)
+        with writer.length_byte():
+            writer.write_bytes(self.public_key_bytes)
+        return writer.to_bytes()
 
     def encode(self) -> bytes:
-        buf = bytearray()
-        buf.extend(self.encode_params())
-        buf.extend(self.signature.encode())
-        return bytes(buf)
+        writer = DataWriter()
+        writer.write_bytes(self.encode_params())
+        writer.write(self.signature)
+        return writer.to_bytes()
 
     def verify_signature(self, server_public_key, client_random: bytes, server_random: bytes):
-        buf = bytearray()
-        buf.extend(client_random)
-        buf.extend(server_random)
-        buf.extend(self.encode_params())
-        return self.signature.verify(public_key=server_public_key, data=bytes(buf))
+        writer = DataWriter()
+        writer.write_bytes(client_random)
+        writer.write_bytes(server_random)
+        writer.write_bytes(self.encode_params())
+        return self.signature.verify(public_key=server_public_key, data=writer.to_bytes())
 
     def execute_key_exchange(self) -> KeyExchangeResult:
         private_key = self.curve_data.generate_private_key()
@@ -127,10 +128,10 @@ class ClientECDHParameters(ClientKeyExchangeParameters):
         return ClientECDHParameters(public_key_bytes=reader.read_bytes(bytes_len))
 
     def encode(self) -> bytes:
-        buf = bytearray()
-        buf.append(len(self.public_key_bytes))
-        buf.extend(self.public_key_bytes)
-        return bytes(buf)
+        writer = DataWriter()
+        with writer.length_byte():
+            writer.write_bytes(self.public_key_bytes)
+        return writer.to_bytes()
 
 
 class KeyExchangeAlgorithm(Enum):

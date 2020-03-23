@@ -1,6 +1,5 @@
 from __future__ import generator_stop
 
-import struct
 from abc import abstractmethod, ABCMeta
 from typing import Sequence, Generic, TypeVar
 
@@ -15,6 +14,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from typing_extensions import Protocol
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
 from toy_tls.enum_with_data import EnumUInt16WithData
 
@@ -153,12 +153,11 @@ class NamedCurveList(ExtensionData):
         )
 
     def encode(self) -> bytes:
-        byte_length = 2 * len(self.supported_curves)
-        buf = bytearray()
-        buf.extend(struct.pack('>H', byte_length))
-        for c in self.supported_curves:
-            buf.extend(c.encode())
-        return bytes(buf)
+        writer = DataWriter()
+        with writer.length_uint16():
+            for c in self.supported_curves:
+                writer.write(c)
+        return writer.to_bytes()
 
 
 NamedCurveList.ALL = NamedCurveList(supported_curves=tuple((c for c in NamedCurve if c.supported)))

@@ -5,6 +5,7 @@ from typing import Sequence
 from attr import attrs, attrib
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
 from toy_tls.enum_with_data import EnumUInt8WithData
 
@@ -29,9 +30,8 @@ class EllipticCurvePointFormatList(ExtensionData):
         )
 
     def encode(self) -> bytes:
-        byte_length = len(self.supported_formats)
-        buf = bytearray()
-        buf.append(byte_length)
-        for f in self.supported_formats:
-            buf.extend(f.encode())
-        return bytes(buf)
+        writer = DataWriter()
+        with writer.length_byte():
+            for f in self.supported_formats:
+                writer.write(f)
+        return writer.to_bytes()

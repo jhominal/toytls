@@ -1,12 +1,12 @@
 from __future__ import generator_stop
 
-import struct
 from abc import ABCMeta, abstractmethod
 from typing import Type, ClassVar, Sequence, Optional
 
 from attr import attrs
 
 from toy_tls._data_reader import DataReader
+from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
 from toy_tls.enum_with_data import EnumUInt8WithData
 
@@ -36,7 +36,10 @@ class HostName(ServerNameData):
         return HostName(data=data_reader.read_bytes(data_length))
 
     def encode(self) -> bytes:
-        return struct.pack('>H', len(self.data)) + self.data
+        writer = DataWriter()
+        with writer.length_uint16():
+            writer.write_bytes(self.data)
+        return writer.to_bytes()
 
 
 class NameType(EnumUInt8WithData):
@@ -62,7 +65,10 @@ class ServerName:
         )
 
     def encode(self) -> bytes:
-        return self.type.encode() + self.data.encode()
+        writer = DataWriter()
+        writer.write(self.type)
+        writer.write(self.data)
+        return writer.to_bytes()
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)
@@ -91,7 +97,8 @@ class ServerNameList(ExtensionData):
         if self.names is None:
             return b''
 
-        buffer = bytearray()
-        for name in self.names:
-            buffer.extend(name.encode())
-        return struct.pack('>H', len(buffer)) + bytes(buffer)
+        writer = DataWriter()
+        with writer.length_uint16():
+            for name in self.names:
+                writer.write(name)
+        return writer.to_bytes()
