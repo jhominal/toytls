@@ -202,13 +202,15 @@ class TLSConnection:
     async def _send_message(self, message: ContentMessage, protocol_version: Optional[ProtocolVersion] = None):
         if isinstance(message, HandshakeMessage):
             self.negotiation_state.handshake_messages.append(message)
-        message_bytes = get_encoded_bytes(message)
-        record = TLSPlaintextRecord(
-            content_type=message.type,
-            protocol_version=protocol_version or self.protocol_version,
-            data=message_bytes,
-        )
-        await self._send_tls_record(record)
+        bytes_to_send = get_encoded_bytes(message)
+        while len(bytes_to_send) > 0:
+            record = TLSPlaintextRecord(
+                content_type=message.type,
+                protocol_version=protocol_version or self.protocol_version,
+                data=bytes_to_send[0:1 << 14],
+            )
+            await self._send_tls_record(record)
+            bytes_to_send = bytes_to_send[1 << 14:]
 
     async def _send_tls_record(self, record: TLSPlaintextRecord):
         writer = DataWriter()
