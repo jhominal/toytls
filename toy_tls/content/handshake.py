@@ -21,7 +21,7 @@ from toy_tls.content.extensions.elliptic_curves import NamedCurveList
 from toy_tls.content.extensions.encrypt_then_mac import EncryptThenMac
 from toy_tls.content.extensions.server_name import ServerNameList
 from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms
-from toy_tls.enum_with_data import EnumUInt8WithData, EnumUInt16WithData
+from toy_tls.enum_with_data import EnumUInt8WithData, EnumUInt16WithData, ExtensibleEnum
 from toy_tls.validation import fixed_bytes, bounded_bytes
 
 
@@ -52,28 +52,16 @@ class HelloRequest(HandshakeMessageData):
         pass
 
 
-class ExtensionType(EnumUInt16WithData):
+class ExtensionType(EnumUInt16WithData, ExtensibleEnum):
     server_name = (ServerNameList.type, ServerNameList)
     elliptic_curves = (NamedCurveList.type, NamedCurveList)
     ec_points_formats = (EllipticCurvePointFormatList.type, EllipticCurvePointFormatList)
     signature_algorithms = (SupportedSignatureAlgorithms.type, SupportedSignatureAlgorithms)
     encrypt_then_mac = (EncryptThenMac.type, EncryptThenMac)
 
-    def __init__(self, value, data_type: Type[ExtensionData]):
+    def __init__(self, value, data_type: Type[ExtensionData] = UnknownExtension):
         super().__init__(value, data_type)
         self.data_type = data_type
-
-    @classmethod
-    def _missing_(cls, value):
-        # HACK: Create new member of Enum so that ExtensionType(<value>) returns the equivalent of
-        #   unknown = (<value>, UnknownExtension)
-
-        # noinspection PyArgumentList
-        v = cls.__new_member__(cls, value, UnknownExtension)
-
-        # _name_ attribute is necessary if we want the value to work right (e.g. with repr)
-        v._name_ = 'unknown'
-        return v
 
 
 @attrs(auto_attribs=True, slots=True)

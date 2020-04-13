@@ -21,6 +21,18 @@ class EnumWithData(Enum):
         return cls(value)
 
 
+class ExtensibleEnum(EnumWithData):
+    @classmethod
+    def _missing_(cls, value):
+        """Return a value to ensure support for values defined in the future."""
+        # noinspection PyArgumentList
+        v = cls.__new_member__(cls, value)
+
+        # _name_ attribute is necessary if we want the value to work right (e.g. with repr)
+        v._name_ = 'unknown'
+        return v
+
+
 class EnumUInt8WithData(EnumWithData):
     def __init__(self, value: int, *args):
         if not isinstance(value, int) or value < 0 or value > 0xff:

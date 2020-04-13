@@ -7,7 +7,7 @@ from attr import attrs
 from toy_tls._data_reader import DataReader
 from toy_tls._data_writer import DataWriter
 from toy_tls.content import ContentType, ContentMessage
-from toy_tls.enum_with_data import EnumUInt8WithData
+from toy_tls.enum_with_data import EnumUInt8WithData, ExtensibleEnum
 
 
 class AlertLevel(EnumUInt8WithData):
@@ -15,7 +15,7 @@ class AlertLevel(EnumUInt8WithData):
     fatal = 2
 
 
-class AlertDescription(EnumUInt8WithData):
+class AlertDescription(EnumUInt8WithData, ExtensibleEnum):
     close_notify = 0
     unexpected_message = 10
     bad_record_mac = 20

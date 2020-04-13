@@ -17,7 +17,7 @@ from typing_extensions import Protocol
 from toy_tls._data_reader import DataReader
 from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
-from toy_tls.enum_with_data import EnumUInt16WithData
+from toy_tls.enum_with_data import EnumUInt16WithData, ExtensibleEnum
 
 
 class Signer(metaclass=ABCMeta):
@@ -114,7 +114,7 @@ class Ed448Verifier(Verifier):
         return self.public_key.verify(signature=signature, data=data)
 
 
-class SignatureScheme(EnumUInt16WithData):
+class SignatureScheme(EnumUInt16WithData, ExtensibleEnum):
     rsa_pkcs1_sha1 = (0x0201, partial(RSASigner, hash=SHA1()), partial(RSAVerifier, hash=SHA1()))
     ecdsa_sha1 = (0x0203, partial(ECDSASigner, hash=SHA1()), partial(ECDSAVerifier, hash=SHA1()))
     rsa_pkcs1_sha256 = (0x0401, partial(RSASigner, hash=SHA256()), partial(RSAVerifier, hash=SHA256()))
@@ -126,7 +126,12 @@ class SignatureScheme(EnumUInt16WithData):
     ed25519 = (0x0807, Ed25519Signer, Ed25519Verifier)
     ed448 = (0x0808, Ed448Signer, Ed448Verifier)
 
-    def __init__(self, value: int, signer_factory: SignerFactory, verifier_factory: VerifierFactory):
+    def __init__(
+        self,
+        value: int,
+        signer_factory: SignerFactory = None,
+        verifier_factory: VerifierFactory = None,
+    ):
         super().__init__(value, signer_factory, verifier_factory)
         self.signer_factory = signer_factory
         self.verifier_factory = verifier_factory

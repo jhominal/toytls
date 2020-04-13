@@ -18,7 +18,7 @@ from toy_tls.content.extensions.elliptic_curves import NamedCurve
 from toy_tls.content.extensions.signature_algorithms import DigitalSignature
 from toy_tls.encryption import EncryptionEngine
 from toy_tls.encryption.aead_engine import ChaCha20Poly1305Engine, AESGCMEngine
-from toy_tls.enum_with_data import EnumUInt16WithData, EnumUInt8WithData
+from toy_tls.enum_with_data import EnumUInt16WithData, EnumUInt8WithData, ExtensibleEnum
 from toy_tls.validation import bounded_bytes
 
 
@@ -62,10 +62,16 @@ class ServerKeyExchangeParameters(metaclass=ABCMeta):
         raise NotImplementedError
 
 
-class EllipticCurveType(EnumUInt8WithData):
+class UnknownCurveType:
+    @classmethod
+    def decode(cls, reader: 'DataReader') -> 'UnknownCurveType':
+        raise NotImplementedError
+
+
+class EllipticCurveType(EnumUInt8WithData, ExtensibleEnum):
     named_curve = (3, NamedCurve)
 
-    def __init__(self, value, parameter_type: Type[SupportsDecode]):
+    def __init__(self, value, parameter_type: Type[SupportsDecode] = UnknownCurveType):
         super().__init__(value, parameter_type)
         self.parameter_type = parameter_type
 
@@ -148,8 +154,7 @@ class KeyExchangeAlgorithm(Enum):
                 )
 
 
-class CipherSuite(EnumUInt16WithData):
-
+class CipherSuite(EnumUInt16WithData, ExtensibleEnum):
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = (0xC02B, KeyExchangeAlgorithm.ECDHE_ECDSA, AESGCMEngine(16), SHA256())
     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = (0xC02C, KeyExchangeAlgorithm.ECDHE_ECDSA, AESGCMEngine(32), SHA384())
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 = (0xC02F, KeyExchangeAlgorithm.ECDHE_RSA, AESGCMEngine(16), SHA256())
@@ -157,7 +162,13 @@ class CipherSuite(EnumUInt16WithData):
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = (0xCCA8, KeyExchangeAlgorithm.ECDHE_RSA, ChaCha20Poly1305Engine(), SHA256())
     TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = (0xCCA9, KeyExchangeAlgorithm.ECDHE_ECDSA, ChaCha20Poly1305Engine(), SHA256())
 
-    def __init__(self, value, key_exchange_algorithm: KeyExchangeAlgorithm, encryption_engine: EncryptionEngine, hash_for_prf: HashAlgorithm):
+    def __init__(
+            self,
+            value,
+            key_exchange_algorithm: KeyExchangeAlgorithm = None,
+            encryption_engine: EncryptionEngine = None,
+            hash_for_prf: HashAlgorithm = None,
+    ):
         super().__init__(value, key_exchange_algorithm, encryption_engine, hash_for_prf)
         self.key_exchange_algorithm = key_exchange_algorithm
         self.encryption_engine = encryption_engine

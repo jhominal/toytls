@@ -16,8 +16,7 @@ from typing_extensions import Protocol
 from toy_tls._data_reader import DataReader
 from toy_tls._data_writer import DataWriter
 from toy_tls.content.extensions import ExtensionData
-from toy_tls.enum_with_data import EnumUInt16WithData
-
+from toy_tls.enum_with_data import EnumUInt16WithData, ExtensibleEnum
 
 TPublicKey = TypeVar('TPublicKey')
 
@@ -109,14 +108,31 @@ class X448Functions(NamedCurveFunctions[X448PublicKey, X448PrivateKey]):
         return public_key.public_bytes(encoding=Encoding.Raw, format=PublicFormat.Raw)
 
 
-class NamedCurve(EnumUInt16WithData):
+class UnsupportedNamedCurveFunctions(NamedCurveFunctions):
+    def is_supported(self) -> bool:
+        return False
+
+    def load_public_key(self, data: bytes) -> None:
+        raise NotImplementedError
+
+    def generate_private_key(self) -> None:
+        raise NotImplementedError
+
+    def execute_key_exchange(self, private_key: None, peer_public_key: None) -> bytes:
+        raise NotImplementedError
+
+    def serialize_public_key(self, public_key: None) -> bytes:
+        raise NotImplementedError
+
+
+class NamedCurve(EnumUInt16WithData, ExtensibleEnum):
     secp256r1 = (23, EllipticCurveFunctions(SECP256R1()))
     secp384r1 = (24, EllipticCurveFunctions(SECP384R1()))
     secp521r1 = (25, EllipticCurveFunctions(SECP521R1()))
     x25519 = (29, X25519Functions())
     x448 = (30, X448Functions())
 
-    def __init__(self, value, functions: NamedCurveFunctions):
+    def __init__(self, value, functions: NamedCurveFunctions = UnsupportedNamedCurveFunctions()):
         super().__init__(value, functions)
         self.functions = functions
 
