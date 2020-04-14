@@ -4,6 +4,7 @@ from abc import ABCMeta, abstractmethod
 from struct import unpack_from
 from typing import ClassVar, Sequence, Type, Optional, List
 
+from asn1crypto.x509 import Name
 from attr import attrs, attrib
 from attr.validators import instance_of, deep_iterable
 from cryptography.hazmat.backends import default_backend
@@ -20,7 +21,8 @@ from toy_tls.content.extensions.ec_points_formats import EllipticCurvePointForma
 from toy_tls.content.extensions.elliptic_curves import NamedCurveList
 from toy_tls.content.extensions.encrypt_then_mac import EncryptThenMac
 from toy_tls.content.extensions.server_name import ServerNameList
-from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms
+from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme, \
+    DigitalSignature
 from toy_tls.enum_with_data import EnumUInt8WithData, EnumUInt16WithData, ExtensibleEnum
 from toy_tls.validation import fixed_bytes, bounded_bytes
 
@@ -246,6 +248,56 @@ class ServerKeyExchange(HandshakeMessageData):
         writer.write_bytes(self.raw_data)
 
 
+class ClientCertificateType(EnumUInt8WithData):
+    rsa_sign = 1
+    dss_sign = 2
+    rsa_fixed_dh = 3
+    dss_fixed_dh = 4
+    rsa_ephemeral_dh_RESERVED = 5
+    dss_ephemeral_dh_RESERVED = 6
+    fortezza_dms_RESERVED = 20
+    ecdsa_sign = 64
+    rsa_fixed_ecdh = 65
+    ecdsa_fixed_ecdh = 66
+
+
+@attrs(auto_attribs=True, slots=True)
+class CertificateRequest(HandshakeMessageData):
+    message_type = 13
+
+    certificate_types: Sequence[ClientCertificateType]
+    supported_signature_algorithms: Sequence[SignatureScheme]
+    certificate_authorities: Sequence[Name]
+
+    @classmethod
+    def decode(cls, reader: DataReader) -> 'CertificateRequest':
+        certificate_types = reader.limited(reader.read_byte()).read_sequence(ClientCertificateType)
+        supported_signature_algorithms = reader.limited(reader.read_uint16()).read_sequence(SignatureScheme)
+        certificate_authorities = []
+        ca_reader = reader.limited(reader.read_uint16())
+        while not ca_reader.at_end_of_data:
+            name_bytes = ca_reader.read_bytes(ca_reader.read_uint16())
+            certificate_authorities.append(Name.load(name_bytes))
+
+        return CertificateRequest(
+            certificate_types=certificate_types,
+            supported_signature_algorithms=supported_signature_algorithms,
+            certificate_authorities=certificate_authorities,
+        )
+
+    def encode(self, writer: DataWriter):
+        with writer.length_byte():
+            for t in self.certificate_types:
+                writer.write(t)
+        with writer.length_uint16():
+            for s in self.supported_signature_algorithms:
+                writer.write(s)
+        with writer.length_uint16():
+            for ca in self.certificate_authorities:
+                with writer.length_uint16():
+                    writer.write_bytes(ca.dump())
+
+
 class ServerHelloDone(HandshakeMessageData):
     message_type = 14
 
@@ -255,6 +307,20 @@ class ServerHelloDone(HandshakeMessageData):
 
     def encode(self, writer: DataWriter):
         pass
+
+
+@attrs(auto_attribs=True, slots=True)
+class CertificateVerify(HandshakeMessageData):
+    message_type= 15
+
+    signature: DigitalSignature
+
+    @classmethod
+    def decode(cls, reader: DataReader) -> 'CertificateVerify':
+        return CertificateVerify(signature=DigitalSignature.decode(reader=reader))
+
+    def encode(self, writer: DataWriter):
+        self.signature.encode(writer=writer)
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -291,9 +357,9 @@ class HandshakeMessageType(EnumUInt8WithData):
     server_hello = (ServerHello.message_type, ServerHello)
     certificate = (PeerCertificate.message_type, PeerCertificate)
     server_key_exchange = (ServerKeyExchange.message_type, ServerKeyExchange)
-    # certificate_request = 13
+    certificate_request = (CertificateRequest.message_type, CertificateRequest)
     server_hello_done = (ServerHelloDone.message_type, ServerHelloDone)
-    # certificate_verify = 15
+    certificate_verify = (CertificateVerify.message_type, CertificateVerify)
     client_key_exchange = (ClientKeyExchange.message_type, ClientKeyExchange)
     finished = (Finished.message_type, Finished)
 
