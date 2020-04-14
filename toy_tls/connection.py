@@ -28,7 +28,8 @@ from toy_tls.content.extensions.elliptic_curves import NamedCurveList
 from toy_tls.content.extensions.server_name import ServerNameList
 from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme
 from toy_tls.content.handshake import HandshakeMessage, ClientHello, Extension, CipherSuite, HandshakeMessageType, \
-    HandshakeMessageData, ServerHello, PeerCertificate, ServerKeyExchange, ServerHelloDone, ClientKeyExchange, Finished
+    HandshakeMessageData, ServerHello, PeerCertificate, ServerKeyExchange, CertificateRequest, ServerHelloDone, \
+    ClientKeyExchange, Finished
 from toy_tls.validation import fixed_bytes
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,24 @@ logger = logging.getLogger(__name__)
 
 class TLSConnectionError(Exception):
     pass
+
+
+class UnexpectedMessageError(TLSConnectionError):
+    pass
+
+
+@attrs(auto_attribs=True, slots=True, auto_exc=True)
+class UnexpectedMessageContentTypeError(UnexpectedMessageError):
+    message: str
+    expected_type: ContentType
+    actual_type: ContentType
+
+
+@attrs(auto_attribs=True, slots=True, auto_exc=True)
+class UnexpectedHandshakeMessageTypeError(UnexpectedMessageError):
+    message: str
+    expected_type: HandshakeMessageType
+    actual_type: HandshakeMessageType
 
 
 def run_prf(hash_algorithm: HashAlgorithm, secret: bytes, label: bytes, seed: bytes, length: int) -> bytes:
@@ -328,10 +347,21 @@ class TLSConnection:
             raise TLSConnectionError(f'Invalid signature when validating ServerKeyExchange.') from None
 
         # OPTION ClientCert: Receive Certificate Request
+        try:
+            certificate_request = await self._expect_handshake_message_of_type(CertificateRequest)
+        except UnexpectedMessageError:
+            certificate_request = None
 
         await self._expect_handshake_message_of_type(ServerHelloDone)
 
-        # OPTION ClientCert: Send Client Certificate Chain
+        if certificate_request is not None:
+            # No option or argument to send a client certificate.
+            # Send an empty chain.
+            client_certificate = PeerCertificate(certificate_list=[])
+            await self._send_message(HandshakeMessage(
+                message_type=HandshakeMessageType.certificate,
+                data=client_certificate,
+            ))
 
         key_exchange = server_parameters.execute_key_exchange()
 
@@ -394,17 +424,27 @@ class TLSConnection:
     async def _expect_handshake_message_of_type(self, t: Type[THandshakeMessageData]) -> THandshakeMessageData:
         next_message = await self._expect_message_with_content_type(HandshakeMessage)
         if next_message.message_type.value != t.message_type:
-            await self._send_fatal_alert(description=AlertDescription.protocol_version)
-            raise TLSConnectionError(
-                f'Received handshake message of type {next_message.message_type} but expected {t.message_type}'
+            self._return_message_to_head(next_message)
+            raise UnexpectedHandshakeMessageTypeError(
+                f'Received handshake message of type {next_message.message_type} but expected {t.message_type}',
+                HandshakeMessageType.from_value(t.message_type),
+                next_message.message_type,
             )
         return next_message.data
 
     async def _expect_message_with_content_type(self, t: Type[TContentMessage]) -> TContentMessage:
         next_message = await self._wait_for_next_message()
         if not isinstance(next_message, t):
-            raise TLSConnectionError(f'Received message of type {next_message.type} but expected {t.type}')
+            self._return_message_to_head(next_message)
+            raise UnexpectedMessageContentTypeError(
+                f'Received message of type {next_message.type} but expected {t.type}',
+                t.type,
+                next_message.type,
+            )
         return next_message
+
+    def _return_message_to_head(self, message: ContentMessage) -> None:
+        self.incoming_messages.insert(0, message)
 
     async def _wait_for_next_message(self) -> ContentMessage:
         while len(self.incoming_messages) == 0:
