@@ -201,11 +201,11 @@ class TLSConnection:
     protocol_version: ProtocolVersion = attrib(init=False, default=ProtocolVersion.TLS_1_2)
 
     encoder: TLSRecordEncoder = attrib(init=False, default=InitialTLSRecordEncoder())
+    next_sequence_number_to_send: int = attrib(init=False, default=0)
     decoder: TLSRecordDecoder = attrib(init=False, default=InitialTLSRecordDecoder())
+    next_expected_sequence_number: int = attrib(init=False, default=0)
 
     negotiation_state: TLSNegotiationState = attrib(init=False, default=TLSNegotiationState())
-    next_sequence_number_to_send: int = attrib(init=False, default=0)
-    next_expected_sequence_number: int = attrib(init=False, default=0)
 
     buffer: IncomingBuffer = attrib(init=False, factory=IncomingBuffer)
     incoming_messages: List[ContentMessage] = attrib(init=False, factory=list)
