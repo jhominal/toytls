@@ -30,7 +30,7 @@ from toy_tls.content.extensions.server_name import ServerNameList
 from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme
 from toy_tls.content.handshake import HandshakeMessage, ClientHello, Extension, CipherSuite, HandshakeMessageType, \
     HandshakeMessageData, ServerHello, PeerCertificate, ServerKeyExchange, CertificateRequest, ServerHelloDone, \
-    ClientKeyExchange, Finished
+    ClientKeyExchange, Finished, HelloRequest
 from toy_tls.validation import fixed_bytes
 
 logger = logging.getLogger(__name__)
@@ -199,6 +199,7 @@ class IncomingBuffer:
 class TLSConnectionStatus(Enum):
     initial_handshake = auto()
     established = auto()
+    renegotiating = auto()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -275,7 +276,24 @@ class TLSConnection:
     async def do_initial_handshake(self):
         if self.status != TLSConnectionStatus.initial_handshake:
             raise RuntimeError('Invalid operation. Connection has already gone through initial handshake.')
+        await self._execute_handshake()
 
+    async def _check_for_renegotiation(self):
+        if len(self.incoming_handshake_messages) == 0:
+            return
+
+        try:
+            await self._expect_handshake_message_of_type(HelloRequest)
+        except UnexpectedMessageError:
+            return
+
+        logger.info('Renegotiation initiated by server.')
+        self.status = TLSConnectionStatus.renegotiating
+        self.negotiation_state = TLSNegotiationState()
+
+        await self._execute_handshake()
+
+    async def _execute_handshake(self):
         self.negotiation_state.client_random = os.urandom(32)
         client_hello = ClientHello(
             client_version=self.protocol_version,
@@ -320,7 +338,10 @@ class TLSConnection:
             message_type=HandshakeMessageType.client_hello,
             data=client_hello,
         )
-        await self._send_message(client_hello_message, protocol_version=ProtocolVersion.TLS_1_0)
+        if self.status == TLSConnectionStatus.initial_handshake:
+            await self._send_message(client_hello_message, protocol_version=ProtocolVersion.TLS_1_0)
+        else:
+            await self._send_message(client_hello_message)
 
         server_hello = await self._expect_handshake_message_of_type(ServerHello)
         if server_hello.server_version < ProtocolVersion.TLS_1_2:
@@ -404,7 +425,7 @@ class TLSConnection:
         self.encoder = self.negotiation_state.next_encoder
         self.next_sequence_number_to_send = 0
 
-        client_verify_data = run_prf(
+        self.negotiation_state.client_verify_data = run_prf(
             hash_algorithm=self.negotiation_state.cipher_suite.hash_for_prf,
             secret=self.negotiation_state.master_secret,
             label=b'client finished',
@@ -414,7 +435,7 @@ class TLSConnection:
         await self._send_message(
             HandshakeMessage(
                 message_type=HandshakeMessageType.finished,
-                data=Finished(verify_data=client_verify_data),
+                data=Finished(verify_data=self.negotiation_state.client_verify_data),
             ),
         )
 
@@ -422,7 +443,7 @@ class TLSConnection:
         self.decoder = self.negotiation_state.next_decoder
         self.next_expected_sequence_number = 0
 
-        server_verify_data = run_prf(
+        self.negotiation_state.server_verify_data = run_prf(
             hash_algorithm=self.negotiation_state.cipher_suite.hash_for_prf,
             secret=self.negotiation_state.master_secret,
             label=b'server finished',
@@ -432,7 +453,7 @@ class TLSConnection:
 
         server_finished = await self._expect_handshake_message_of_type(Finished)
 
-        if not constant_time.bytes_eq(server_finished.verify_data, server_verify_data):
+        if not constant_time.bytes_eq(server_finished.verify_data, self.negotiation_state.server_verify_data):
             raise TLSConnectionError(f'Server-sent hash does not match expected hash.')
 
         self.status = TLSConnectionStatus.established
@@ -495,6 +516,8 @@ class TLSConnection:
 
         while len(self.incoming_application_data) == 0:
             await self._pump_messages()
+            await self._check_for_renegotiation()
+
         result = b''.join(self.incoming_application_data)
         self.incoming_application_data.clear()
         return result
