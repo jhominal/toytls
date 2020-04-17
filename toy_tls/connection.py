@@ -4,7 +4,7 @@ import logging
 import os
 from asyncio import StreamReader, StreamWriter
 from functools import partial
-from typing import Type, TypeVar, Generic, Iterable, Sequence, Optional, List
+from typing import Type, TypeVar, Generic, Iterable, Sequence, Optional, List, Union
 
 from attr import attrs, attrib
 from attr.validators import instance_of
@@ -131,7 +131,9 @@ class TLSNegotiationState:
         return hash_context.finalize()
 
 
+HandshakeMessageLax = Union[HandshakeMessage, ChangeCipherSpecMessage]
 TContentMessage = TypeVar('TContentMessage', bound=ContentMessage)
+THandshakeMessageLax = TypeVar('THandshakeMessageLax', HandshakeMessage, ChangeCipherSpecMessage)
 THandshakeMessageData = TypeVar('THandshakeMessageData', bound=HandshakeMessageData)
 
 
@@ -208,7 +210,8 @@ class TLSConnection:
     negotiation_state: TLSNegotiationState = attrib(init=False, default=TLSNegotiationState())
 
     buffer: IncomingBuffer = attrib(init=False, factory=IncomingBuffer)
-    incoming_messages: List[ContentMessage] = attrib(init=False, factory=list)
+    incoming_handshake_messages: List[HandshakeMessageLax] = attrib(init=False, factory=list)
+    incoming_application_data: List[bytes] = attrib(init=False, factory=list)
 
     async def _send_fatal_alert(self, description: AlertDescription):
         return await self._send_message(
@@ -404,7 +407,7 @@ class TLSConnection:
             ),
         )
 
-        await self._expect_message_with_content_type(ChangeCipherSpecMessage)
+        await self._expect_handshake_message(ChangeCipherSpecMessage)
         self.decoder = self.negotiation_state.next_decoder
         self.next_expected_sequence_number = 0
 
@@ -422,7 +425,7 @@ class TLSConnection:
             raise TLSConnectionError(f'Server-sent hash does not match expected hash.')
 
     async def _expect_handshake_message_of_type(self, t: Type[THandshakeMessageData]) -> THandshakeMessageData:
-        next_message = await self._expect_message_with_content_type(HandshakeMessage)
+        next_message = await self._expect_handshake_message(HandshakeMessage)
         if next_message.message_type.value != t.message_type:
             self._return_message_to_head(next_message)
             raise UnexpectedHandshakeMessageTypeError(
@@ -432,8 +435,8 @@ class TLSConnection:
             )
         return next_message.data
 
-    async def _expect_message_with_content_type(self, t: Type[TContentMessage]) -> TContentMessage:
-        next_message = await self._wait_for_next_message()
+    async def _expect_handshake_message(self, t: Type[THandshakeMessageLax]) -> THandshakeMessageLax:
+        next_message = await self._wait_for_next_handshake_message()
         if not isinstance(next_message, t):
             self._return_message_to_head(next_message)
             raise UnexpectedMessageContentTypeError(
@@ -443,29 +446,36 @@ class TLSConnection:
             )
         return next_message
 
-    def _return_message_to_head(self, message: ContentMessage) -> None:
-        self.incoming_messages.insert(0, message)
+    def _return_message_to_head(self, message: HandshakeMessageLax) -> None:
+        self.incoming_handshake_messages.insert(0, message)
 
-    async def _wait_for_next_message(self) -> ContentMessage:
-        while len(self.incoming_messages) == 0:
-            next_messages = await self._wait_for_next_messages()
-            for m in next_messages:
-                if isinstance(m, AlertMessage):
-                    if m.level == AlertLevel.fatal:
-                        logger.error('Received fatal alert %s', m.description)
-                        raise TLSConnectionError('Handshake fatal alert', m)
-                    else:
-                        logger.warning('Received warning alert %s', m.description)
+    async def _wait_for_next_handshake_message(self) -> HandshakeMessageLax:
+        while len(self.incoming_handshake_messages) == 0:
+            await self._pump_messages()
+        return self.incoming_handshake_messages.pop(0)
+
+    async def _pump_messages(self) -> None:
+        next_messages = await self._wait_for_next_messages()
+        for m in next_messages:
+            if isinstance(m, AlertMessage):
+                if m.level == AlertLevel.fatal:
+                    logger.error('Received fatal alert %s', m.description)
+                    raise TLSConnectionError('Handshake fatal alert', m)
                 else:
-                    self.incoming_messages.append(m)
-                    if isinstance(m, HandshakeMessage):
-                        self.negotiation_state.handshake_messages.append(m)
-
-        return self.incoming_messages.pop(0)
+                    logger.warning('Received warning alert %s', m.description)
+            elif isinstance(m, ApplicationDataMessage):
+                self.incoming_application_data.append(m.data)
+            else:
+                self.incoming_handshake_messages.append(m)
+                if isinstance(m, HandshakeMessage):
+                    self.negotiation_state.handshake_messages.append(m)
 
     async def send_application_data(self, data: bytes):
         await self._send_message(ApplicationDataMessage(data=data))
 
     async def receive_application_data(self) -> bytes:
-        received_data = await self._expect_message_with_content_type(ApplicationDataMessage)
-        return received_data.data
+        while len(self.incoming_application_data) == 0:
+            await self._pump_messages()
+        result = b''.join(self.incoming_application_data)
+        self.incoming_application_data.clear()
+        return result
