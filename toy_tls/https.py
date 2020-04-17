@@ -19,8 +19,8 @@ async def run(url: str):
     if port is None and parsed_url.scheme == 'https':
         port = 443
     reader, writer = await asyncio.open_connection(host=hostname, port=port, ssl=None)
-    connection = TLSConnection(reader=reader, writer=writer)
-    await connection.do_initial_handshake(hostname=hostname)
+    connection = TLSConnection(reader=reader, writer=writer, hostname=hostname)
+    await connection.do_initial_handshake()
     relative_url = SplitResult(scheme='', netloc='', path=parsed_url.path, query=parsed_url.query, fragment='')
     http_data = f'GET {urlunsplit(relative_url)} HTTP/1.1\r\nAccept: */*\r\nHost: {hostname}\r\n\r\n'.encode('ascii')
     await connection.send_application_data(data=http_data)

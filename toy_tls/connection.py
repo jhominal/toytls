@@ -205,6 +205,7 @@ class TLSConnectionStatus(Enum):
 class TLSConnection:
     reader: StreamReader = attrib(kw_only=True)
     writer: StreamWriter = attrib(kw_only=True)
+    hostname: str = attrib(kw_only=True)
 
     protocol_version: ProtocolVersion = attrib(init=False, default=ProtocolVersion.TLS_1_2)
 
@@ -271,7 +272,7 @@ class TLSConnection:
         self.next_expected_sequence_number += 1
         return decrypted_record
 
-    async def do_initial_handshake(self, hostname: str):
+    async def do_initial_handshake(self):
         if self.status != TLSConnectionStatus.initial_handshake:
             raise RuntimeError('Invalid operation. Connection has already gone through initial handshake.')
 
@@ -289,7 +290,7 @@ class TLSConnection:
             ],
             extensions=[
                 Extension.from_data(
-                    ServerNameList.create(hostname.encode('ascii'))
+                    ServerNameList.create(self.hostname.encode('ascii'))
                 ),
                 Extension.from_data(
                     NamedCurveList.ALL
