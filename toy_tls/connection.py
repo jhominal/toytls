@@ -208,13 +208,13 @@ class TLSConnection:
 
     protocol_version: ProtocolVersion = attrib(init=False, default=ProtocolVersion.TLS_1_2)
 
-    encoder: TLSRecordEncoder = attrib(init=False, default=InitialTLSRecordEncoder())
+    encoder: TLSRecordEncoder = attrib(init=False, factory=InitialTLSRecordEncoder)
     next_sequence_number_to_send: int = attrib(init=False, default=0)
-    decoder: TLSRecordDecoder = attrib(init=False, default=InitialTLSRecordDecoder())
+    decoder: TLSRecordDecoder = attrib(init=False, factory=InitialTLSRecordDecoder)
     next_expected_sequence_number: int = attrib(init=False, default=0)
 
     status: TLSConnectionStatus = attrib(init=False, default=TLSConnectionStatus.initial_handshake)
-    negotiation_state: TLSNegotiationState = attrib(init=False, default=TLSNegotiationState())
+    negotiation_state: TLSNegotiationState = attrib(init=False, factory=TLSNegotiationState)
 
     buffer: IncomingBuffer = attrib(init=False, factory=IncomingBuffer)
     incoming_handshake_messages: List[HandshakeMessageLax] = attrib(init=False, factory=list)
