@@ -3,6 +3,7 @@ from __future__ import generator_stop
 import logging
 import os
 from asyncio import StreamReader, StreamWriter
+from enum import Enum, auto
 from functools import partial
 from typing import Type, TypeVar, Generic, Iterable, Sequence, Optional, List, Union
 
@@ -195,6 +196,11 @@ class IncomingBuffer:
         return buffer.get_available_messages()
 
 
+class TLSConnectionStatus(Enum):
+    initial_handshake = auto()
+    established = auto()
+
+
 @attrs(auto_attribs=True, slots=True)
 class TLSConnection:
     reader: StreamReader = attrib(kw_only=True)
@@ -207,6 +213,7 @@ class TLSConnection:
     decoder: TLSRecordDecoder = attrib(init=False, default=InitialTLSRecordDecoder())
     next_expected_sequence_number: int = attrib(init=False, default=0)
 
+    status: TLSConnectionStatus = attrib(init=False, default=TLSConnectionStatus.initial_handshake)
     negotiation_state: TLSNegotiationState = attrib(init=False, default=TLSNegotiationState())
 
     buffer: IncomingBuffer = attrib(init=False, factory=IncomingBuffer)
@@ -265,6 +272,9 @@ class TLSConnection:
         return decrypted_record
 
     async def do_initial_handshake(self, hostname: str):
+        if self.status != TLSConnectionStatus.initial_handshake:
+            raise RuntimeError('Invalid operation. Connection has already gone through initial handshake.')
+
         self.negotiation_state.client_random = os.urandom(32)
         client_hello = ClientHello(
             client_version=self.protocol_version,
@@ -424,6 +434,8 @@ class TLSConnection:
         if not constant_time.bytes_eq(server_finished.verify_data, server_verify_data):
             raise TLSConnectionError(f'Server-sent hash does not match expected hash.')
 
+        self.status = TLSConnectionStatus.established
+
     async def _expect_handshake_message_of_type(self, t: Type[THandshakeMessageData]) -> THandshakeMessageData:
         next_message = await self._expect_handshake_message(HandshakeMessage)
         if next_message.message_type.value != t.message_type:
@@ -471,9 +483,15 @@ class TLSConnection:
                     self.negotiation_state.handshake_messages.append(m)
 
     async def send_application_data(self, data: bytes):
+        if self.status != TLSConnectionStatus.established:
+            raise RuntimeError('Cannot send application data while negotiation is ongoing.')
+
         await self._send_message(ApplicationDataMessage(data=data))
 
     async def receive_application_data(self) -> bytes:
+        if self.status != TLSConnectionStatus.established:
+            raise RuntimeError('Cannot receive application data while negotiation is ongoing.')
+
         while len(self.incoming_application_data) == 0:
             await self._pump_messages()
         result = b''.join(self.incoming_application_data)
