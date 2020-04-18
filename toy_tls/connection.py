@@ -26,6 +26,7 @@ from toy_tls.content.alert import AlertMessage, AlertLevel, AlertDescription
 from toy_tls.content.change_cipher_spec import ChangeCipherSpecMessage
 from toy_tls.content.extensions.ec_points_formats import EllipticCurvePointFormatList
 from toy_tls.content.extensions.elliptic_curves import NamedCurveList
+from toy_tls.content.extensions.renegotiation_info import RenegotiationInfo
 from toy_tls.content.extensions.server_name import ServerNameList
 from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme
 from toy_tls.content.handshake import HandshakeMessage, ClientHello, Extension, CipherSuite, HandshakeMessageType, \
@@ -94,6 +95,9 @@ class TLSNegotiationState:
     next_encoder: TLSRecordEncoder = attrib(init=False, validator=instance_of(TLSRecordEncoder))
     next_decoder: TLSRecordDecoder = attrib(init=False, validator=instance_of(TLSRecordDecoder))
     handshake_messages: List[HandshakeMessage] = attrib(init=False, factory=list)
+    client_verify_data: bytes = attrib(init=False, validator=instance_of(bytes))
+    server_verify_data: bytes = attrib(init=False, validator=instance_of(bytes))
+    previous_state: Optional['TLSNegotiationState'] = attrib(default=None)
 
     def initialize_codec(self):
         engine = self.cipher_suite.encryption_engine
@@ -216,6 +220,7 @@ class TLSConnection:
     next_expected_sequence_number: int = attrib(init=False, default=0)
 
     status: TLSConnectionStatus = attrib(init=False, default=TLSConnectionStatus.initial_handshake)
+    secure_renegotiation: bool = attrib(init=False, default=False)
     negotiation_state: TLSNegotiationState = attrib(init=False, factory=TLSNegotiationState)
 
     buffer: IncomingBuffer = attrib(init=False, factory=IncomingBuffer)
@@ -289,12 +294,53 @@ class TLSConnection:
 
         logger.info('Renegotiation initiated by server.')
         self.status = TLSConnectionStatus.renegotiating
-        self.negotiation_state = TLSNegotiationState()
+        self.negotiation_state = TLSNegotiationState(previous_state=self.negotiation_state)
 
         await self._execute_handshake()
 
     async def _execute_handshake(self):
         self.negotiation_state.client_random = os.urandom(32)
+
+        client_hello_extensions = [
+            Extension.from_data(
+                ServerNameList.create(self.hostname.encode('ascii'))
+            ),
+            Extension.from_data(
+                NamedCurveList.ALL
+            ),
+            Extension.from_data(
+                EllipticCurvePointFormatList(),
+            ),
+            Extension.from_data(
+                SupportedSignatureAlgorithms(
+                    algorithms=[
+                        SignatureScheme.ed25519,
+                        SignatureScheme.ed448,
+                        SignatureScheme.ecdsa_secp521r1_sha512,
+                        SignatureScheme.rsa_pkcs1_sha512,
+                        SignatureScheme.ecdsa_secp384r1_sha384,
+                        SignatureScheme.rsa_pkcs1_sha384,
+                        SignatureScheme.ecdsa_secp256r1_sha256,
+                        SignatureScheme.rsa_pkcs1_sha256,
+                        SignatureScheme.ecdsa_sha1,
+                        SignatureScheme.rsa_pkcs1_sha1,
+                    ]
+                )
+            ),
+        ]
+        if self.status == TLSConnectionStatus.initial_handshake:
+            client_hello_extensions.append(
+                Extension.from_data(
+                    RenegotiationInfo(data=b''),
+                )
+            )
+        elif self.status == TLSConnectionStatus.renegotiating and self.secure_renegotiation:
+            client_hello_extensions.append(
+                Extension.from_data(
+                    RenegotiationInfo(data=self.negotiation_state.previous_state.client_verify_data)
+                )
+            )
+
         client_hello = ClientHello(
             client_version=self.protocol_version,
             random=self.negotiation_state.client_random,
@@ -306,33 +352,7 @@ class TLSConnection:
                 CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
                 CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
             ],
-            extensions=[
-                Extension.from_data(
-                    ServerNameList.create(self.hostname.encode('ascii'))
-                ),
-                Extension.from_data(
-                    NamedCurveList.ALL
-                ),
-                Extension.from_data(
-                    EllipticCurvePointFormatList(),
-                ),
-                Extension.from_data(
-                    SupportedSignatureAlgorithms(
-                        algorithms=[
-                            SignatureScheme.ed25519,
-                            SignatureScheme.ed448,
-                            SignatureScheme.ecdsa_secp521r1_sha512,
-                            SignatureScheme.rsa_pkcs1_sha512,
-                            SignatureScheme.ecdsa_secp384r1_sha384,
-                            SignatureScheme.rsa_pkcs1_sha384,
-                            SignatureScheme.ecdsa_secp256r1_sha256,
-                            SignatureScheme.rsa_pkcs1_sha256,
-                            SignatureScheme.ecdsa_sha1,
-                            SignatureScheme.rsa_pkcs1_sha1,
-                        ]
-                    )
-                ),
-            ]
+            extensions=client_hello_extensions,
         )
         client_hello_message = HandshakeMessage(
             message_type=HandshakeMessageType.client_hello,
@@ -352,6 +372,24 @@ class TLSConnection:
             )
         self.negotiation_state.server_random = server_hello.random
         self.negotiation_state.cipher_suite = server_hello.cipher_suite
+
+        server_renegotiation_info = server_hello.find_extension(RenegotiationInfo)
+        if self.status == TLSConnectionStatus.initial_handshake:
+            if server_renegotiation_info is not None:
+                self.secure_renegotiation = True
+                if len(server_renegotiation_info.data) != 0:
+                    raise TLSConnectionError('Found data in initial server-sent renegotiation object.')
+        if self.status == TLSConnectionStatus.renegotiating:
+            if server_renegotiation_info is None and self.secure_renegotiation:
+                raise TLSConnectionError('Extension renegotiation_info missing from renegotiated ServerHello')
+            elif server_renegotiation_info is not None:
+                previous_verification_data = (
+                    self.negotiation_state.previous_state.client_verify_data +
+                    self.negotiation_state.previous_state.server_verify_data
+                )
+                if not constant_time.bytes_eq(server_renegotiation_info.data, previous_verification_data):
+                    raise TLSConnectionError('Data in renegotiated ServerHello does not match verification values.')
+
         logger.debug(f'Negotiated cipher suite {server_hello.cipher_suite.name}')
 
         server_certificate_chain = await self._expect_handshake_message_of_type(PeerCertificate)

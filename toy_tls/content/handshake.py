@@ -2,7 +2,7 @@ from __future__ import generator_stop
 
 from abc import ABCMeta, abstractmethod
 from struct import unpack_from
-from typing import ClassVar, Sequence, Type, Optional, List
+from typing import ClassVar, Sequence, Type, Optional, List, TypeVar
 
 from asn1crypto.x509 import Name
 from attr import attrs, attrib
@@ -20,11 +20,14 @@ from toy_tls.content.extensions import ExtensionData, UnknownExtension
 from toy_tls.content.extensions.ec_points_formats import EllipticCurvePointFormatList
 from toy_tls.content.extensions.elliptic_curves import NamedCurveList
 from toy_tls.content.extensions.encrypt_then_mac import EncryptThenMac
+from toy_tls.content.extensions.renegotiation_info import RenegotiationInfo
 from toy_tls.content.extensions.server_name import ServerNameList
 from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme, \
     DigitalSignature
 from toy_tls.enum_with_data import EnumUInt8WithData, EnumUInt16WithData, ExtensibleEnum
 from toy_tls.validation import fixed_bytes, bounded_bytes
+
+TExtensionData = TypeVar('TExtensionData', bound=ExtensionData)
 
 
 class HandshakeMessageData(metaclass=ABCMeta):
@@ -60,6 +63,7 @@ class ExtensionType(EnumUInt16WithData, ExtensibleEnum):
     ec_points_formats = (EllipticCurvePointFormatList.type, EllipticCurvePointFormatList)
     signature_algorithms = (SupportedSignatureAlgorithms.type, SupportedSignatureAlgorithms)
     encrypt_then_mac = (EncryptThenMac.type, EncryptThenMac)
+    renegotiation_info = (RenegotiationInfo.type, RenegotiationInfo)
 
     def __init__(self, value, data_type: Type[ExtensionData] = UnknownExtension):
         super().__init__(value, data_type)
@@ -208,6 +212,11 @@ class ServerHello(HandshakeMessageData):
                 for extension in self.extensions:
                     writer.write(extension)
 
+    def find_extension(self, extension_data_type: Type[TExtensionData]) -> Optional[TExtensionData]:
+        for extension in self.extensions:
+            if extension.type.value == extension_data_type.type:
+                return extension.data
+        return None
 
 @attrs(auto_attribs=True, slots=True)
 class PeerCertificate(HandshakeMessageData):
