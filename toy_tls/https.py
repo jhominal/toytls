@@ -22,7 +22,13 @@ async def run(url: str):
     connection = TLSConnection(reader=reader, writer=writer, hostname=hostname)
     await connection.do_initial_handshake()
     relative_url = SplitResult(scheme='', netloc='', path=parsed_url.path, query=parsed_url.query, fragment='')
-    http_data = f'GET {urlunsplit(relative_url)} HTTP/1.1\r\nAccept: */*\r\nHost: {hostname}\r\n\r\n'.encode('ascii')
+    http_data = (
+        f'GET {urlunsplit(relative_url)} HTTP/1.1\r\n'
+        f'Accept: */*\r\n'
+        f'Host: {hostname}\r\n'
+        f'User-Agent: curl\r\n'
+        f'\r\n'
+    ).encode('ascii')
     await connection.send_application_data(data=http_data)
     response_data = await connection.receive_application_data()
     print(response_data.decode('utf-8'), file=sys.stdout)
