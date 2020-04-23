@@ -218,6 +218,7 @@ class ServerHello(HandshakeMessageData):
                 return extension.data
         return None
 
+
 @attrs(auto_attribs=True, slots=True)
 class PeerCertificate(HandshakeMessageData):
     message_type = 11
@@ -257,7 +258,7 @@ class ServerKeyExchange(HandshakeMessageData):
         writer.write_bytes(self.raw_data)
 
 
-class ClientCertificateType(EnumUInt8WithData):
+class ClientCertificateType(EnumUInt8WithData, ExtensibleEnum):
     rsa_sign = 1
     dss_sign = 2
     rsa_fixed_dh = 3
@@ -320,7 +321,7 @@ class ServerHelloDone(HandshakeMessageData):
 
 @attrs(auto_attribs=True, slots=True)
 class CertificateVerify(HandshakeMessageData):
-    message_type= 15
+    message_type = 15
 
     signature: DigitalSignature
 
