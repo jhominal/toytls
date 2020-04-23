@@ -6,6 +6,7 @@ from typing import Sequence
 
 from attr import attrs, attrib
 from attr.validators import instance_of
+from cryptography.hazmat.primitives.asymmetric.dsa import DSAPrivateKey, DSAPublicKey
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey, EllipticCurvePublicKey, ECDSA
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey, Ed448PublicKey
@@ -65,6 +66,24 @@ class RSAVerifier(Verifier):
 
 
 @attrs(auto_attribs=True, frozen=True)
+class DSSSigner(Signer):
+    private_key: DSAPrivateKey = attrib(validator=instance_of(DSAPrivateKey))
+    hash: HashAlgorithm = attrib(validator=instance_of(HashAlgorithm))
+
+    def sign(self, data: bytes) -> bytes:
+        return self.private_key.sign(data=data, algorithm=self.hash)
+
+
+@attrs(auto_attribs=True, frozen=True)
+class DSSVerifier(Verifier):
+    public_key: DSAPublicKey = attrib(validator=instance_of(DSAPublicKey))
+    hash: HashAlgorithm = attrib(validator=instance_of(HashAlgorithm))
+
+    def verify(self, signature: bytes, data: bytes):
+        return self.public_key.verify(signature=signature, data=data, algorithm=self.hash)
+
+
+@attrs(auto_attribs=True, frozen=True)
 class ECDSASigner(Signer):
     private_key: EllipticCurvePrivateKey = attrib(validator=instance_of(EllipticCurvePrivateKey))
     hash: HashAlgorithm = attrib(validator=instance_of(HashAlgorithm))
@@ -116,14 +135,19 @@ class Ed448Verifier(Verifier):
 
 class SignatureScheme(EnumUInt16WithData, ExtensibleEnum):
     rsa_pkcs1_sha1 = (0x0201, partial(RSASigner, hash=SHA1()), partial(RSAVerifier, hash=SHA1()))
+    dss_sha1 = (0x0202, partial(DSSSigner, hash=SHA1()), partial(DSSVerifier, hash=SHA1()))
     ecdsa_sha1 = (0x0203, partial(ECDSASigner, hash=SHA1()), partial(ECDSAVerifier, hash=SHA1()))
     rsa_pkcs1_sha224 = (0x0301, partial(RSASigner, hash=SHA224()), partial(RSAVerifier, hash=SHA224()))
+    dss_sha224 = (0x0302, partial(DSSSigner, hash=SHA224()), partial(DSSVerifier, hash=SHA224()))
     ecdsa_sha224 = (0x0303, partial(ECDSASigner, hash=SHA224()), partial(ECDSAVerifier, hash=SHA224()))
     rsa_pkcs1_sha256 = (0x0401, partial(RSASigner, hash=SHA256()), partial(RSAVerifier, hash=SHA256()))
+    dss_sha256 = (0x0402, partial(DSSSigner, hash=SHA256()), partial(DSSVerifier, hash=SHA256()))
     ecdsa_secp256r1_sha256 = (0x0403, partial(ECDSASigner, hash=SHA256()), partial(ECDSAVerifier, hash=SHA256()))
     rsa_pkcs1_sha384 = (0x0501, partial(RSASigner, hash=SHA384()), partial(RSAVerifier, hash=SHA384()))
+    dss_sha384 = (0x0502, partial(DSSSigner, hash=SHA384()), partial(DSSVerifier, hash=SHA384()))
     ecdsa_secp384r1_sha384 = (0x0503, partial(ECDSASigner, hash=SHA384()), partial(ECDSAVerifier, hash=SHA384()))
     rsa_pkcs1_sha512 = (0x0601, partial(RSASigner, hash=SHA512()), partial(RSAVerifier, hash=SHA512()))
+    dss_sha512 = (0x0602, partial(DSSSigner, hash=SHA512()), partial(DSSVerifier, hash=SHA512()))
     ecdsa_secp521r1_sha512 = (0x0603, partial(ECDSASigner, hash=SHA512()), partial(ECDSAVerifier, hash=SHA512()))
     ed25519 = (0x0807, Ed25519Signer, Ed25519Verifier)
     ed448 = (0x0808, Ed448Signer, Ed448Verifier)
