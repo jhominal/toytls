@@ -6,11 +6,11 @@ from typing import Sequence
 
 from attr import attrs, attrib
 from attr.validators import instance_of
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, EllipticCurvePrivateKey, ECDSA
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey, EllipticCurvePublicKey, ECDSA
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey, Ed448PublicKey
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 from cryptography.hazmat.primitives.hashes import SHA1, SHA256, SHA384, SHA512, HashAlgorithm
 from typing_extensions import Protocol
 
@@ -37,7 +37,7 @@ class Verifier(metaclass=ABCMeta):
     __slots__ = ()
 
     @abstractmethod
-    def verify(self, data: bytes, signature: bytes):
+    def verify(self, signature: bytes, data: bytes):
         raise NotImplementedError()
 
 
@@ -60,7 +60,7 @@ class RSAVerifier(Verifier):
     public_key: RSAPublicKey = attrib(validator=instance_of(RSAPublicKey))
     hash: HashAlgorithm = attrib(validator=instance_of(HashAlgorithm))
 
-    def verify(self, signature:bytes, data: bytes):
+    def verify(self, signature: bytes, data: bytes):
         return self.public_key.verify(signature=signature, data=data, padding=PKCS1v15(), algorithm=self.hash)
 
 
