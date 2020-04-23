@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey, Ed448PublicKey
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
-from cryptography.hazmat.primitives.hashes import SHA1, SHA256, SHA384, SHA512, HashAlgorithm
+from cryptography.hazmat.primitives.hashes import SHA1, SHA224, SHA256, SHA384, SHA512, HashAlgorithm
 from typing_extensions import Protocol
 
 from toy_tls._data_reader import DataReader
@@ -117,6 +117,8 @@ class Ed448Verifier(Verifier):
 class SignatureScheme(EnumUInt16WithData, ExtensibleEnum):
     rsa_pkcs1_sha1 = (0x0201, partial(RSASigner, hash=SHA1()), partial(RSAVerifier, hash=SHA1()))
     ecdsa_sha1 = (0x0203, partial(ECDSASigner, hash=SHA1()), partial(ECDSAVerifier, hash=SHA1()))
+    rsa_pkcs1_sha224 = (0x0301, partial(RSASigner, hash=SHA224()), partial(RSAVerifier, hash=SHA224()))
+    ecdsa_sha224 = (0x0303, partial(ECDSASigner, hash=SHA224()), partial(ECDSAVerifier, hash=SHA224()))
     rsa_pkcs1_sha256 = (0x0401, partial(RSASigner, hash=SHA256()), partial(RSAVerifier, hash=SHA256()))
     ecdsa_secp256r1_sha256 = (0x0403, partial(ECDSASigner, hash=SHA256()), partial(ECDSAVerifier, hash=SHA256()))
     rsa_pkcs1_sha384 = (0x0501, partial(RSASigner, hash=SHA384()), partial(RSAVerifier, hash=SHA384()))
