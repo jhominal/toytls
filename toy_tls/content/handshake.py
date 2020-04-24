@@ -2,12 +2,17 @@ from __future__ import generator_stop
 
 from abc import ABCMeta, abstractmethod
 from struct import unpack_from
-from typing import ClassVar, Sequence, Type, Optional, List, TypeVar
+from typing import ClassVar, Sequence, Type, Optional, List, TypeVar, Union, Tuple
 
 from asn1crypto.x509 import Name
 from attr import attrs, attrib
 from attr.validators import instance_of, deep_iterable
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric.dsa import DSAPublicKey
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PublicKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509 import Certificate, load_der_x509_certificate
 
@@ -259,16 +264,25 @@ class ServerKeyExchange(HandshakeMessageData):
 
 
 class ClientCertificateType(EnumUInt8WithData, ExtensibleEnum):
-    rsa_sign = 1
-    dss_sign = 2
+    rsa_sign = (1, RSAPublicKey)
+    dss_sign = (2, DSAPublicKey)
     rsa_fixed_dh = 3
     dss_fixed_dh = 4
     rsa_ephemeral_dh_RESERVED = 5
     dss_ephemeral_dh_RESERVED = 6
     fortezza_dms_RESERVED = 20
-    ecdsa_sign = 64
+    ecdsa_sign = (64, (EllipticCurvePublicKey, Ed25519PublicKey, Ed448PublicKey))
     rsa_fixed_ecdh = 65
     ecdsa_fixed_ecdh = 66
+
+    def __init__(self, value: int, public_key_types: Union[None, Type, Tuple[Type, ...]] = None):
+        super().__init__(value, public_key_types)
+        self._public_key_types = public_key_types
+
+    def is_compatible_with(self, public_key):
+        if self._public_key_types is None:
+            return False
+        return isinstance(public_key, self._public_key_types)
 
 
 @attrs(auto_attribs=True, slots=True)
