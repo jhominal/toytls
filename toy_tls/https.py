@@ -3,23 +3,37 @@ from __future__ import generator_stop
 import asyncio
 import sys
 import logging
-from argparse import ArgumentParser
+from argparse import ArgumentParser, FileType
+from typing import BinaryIO, Optional
 from urllib.parse import urlsplit, SplitResult, urlunsplit
 
+from toy_tls.certificate import KeyPairValidationError
 from toy_tls.connection import TLSConnection
-
+from toy_tls.pem import load_cert_and_key
 
 logging.basicConfig(level='DEBUG')
 
+logger = logging.getLogger(__name__)
 
-async def run(url: str):
+
+async def run(url: str, cert_file: Optional[BinaryIO], key_file: Optional[BinaryIO], key_password: Optional[bytes]):
+    if cert_file is not None:
+        client_certificate = load_cert_and_key(cert_file=cert_file, key_file=key_file, key_password=key_password)
+        try:
+            client_certificate.check_key_pair()
+        except KeyPairValidationError as e:
+            logger.error(f'Configured key pair does not work: {e}')
+            client_certificate = None
+    else:
+        client_certificate = None
+
     parsed_url: SplitResult = urlsplit(url)
     port = parsed_url.port
     hostname = parsed_url.hostname
     if port is None and parsed_url.scheme == 'https':
         port = 443
     reader, writer = await asyncio.open_connection(host=hostname, port=port, ssl=None)
-    connection = TLSConnection(reader=reader, writer=writer, hostname=hostname)
+    connection = TLSConnection(reader=reader, writer=writer, hostname=hostname, client_certificate=client_certificate)
     await connection.do_initial_handshake()
     relative_url = SplitResult(scheme='', netloc='', path=parsed_url.path, query=parsed_url.query, fragment='')
     http_data = (
@@ -34,16 +48,26 @@ async def run(url: str):
     print(response_data.decode('utf-8'), file=sys.stdout)
 
 
-def main(url: str):
+def main(url: str, cert_file: Optional[BinaryIO], key_file: Optional[BinaryIO], key_password: Optional[bytes]):
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(run(url=url))
+    loop.run_until_complete(run(url=url, cert_file=cert_file, key_file=key_file, key_password=key_password))
     loop.close()
 
 
 parser = ArgumentParser("Open a TLS connection with target server and send a GET HTTPS request on the given URL.")
 parser.add_argument('url')
 parser.add_argument('-v', '--verbose', action='store_true', dest='verbose')
+parser.add_argument('--cert', type=FileType('rb'), help='A client certificate to use, in PEM format. May include the private key.')
+parser.add_argument('--key', type=FileType('rb'), help='The private key of the client certificate, in PEM format.')
+parser.add_argument('--key-password', help='The password to the private key, if it is encrypted.')
+parser.add_argument('--prompt-key-password', action='store_true', help='Prompt for the password to the private key.')
 
 if __name__ == '__main__':
     arguments = parser.parse_args()
-    main(url=arguments.url)
+
+    if arguments.prompt_key_password:
+        key_pwd = input('Key password: ')
+    else:
+        key_pwd = arguments.key_password
+
+    main(url=arguments.url, cert_file=arguments.cert, key_file=arguments.key, key_password=key_pwd)

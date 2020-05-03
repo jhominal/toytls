@@ -143,8 +143,16 @@ class SignatureScheme(EnumUInt16WithData, ExtensibleEnum):
         super().__init__(value, signature_functions)
         self.signature_functions = signature_functions
 
+    def is_compatible_with(self, public_key) -> bool:
+        if self.signature_functions is None:
+            return False
+        return isinstance(public_key, self.signature_functions.public_key_type)
+
     def verify(self, public_key, signature: bytes, data: bytes):
         return self.signature_functions.verify(public_key=public_key, signature=signature, data=data)
+
+    def sign(self, private_key, data: bytes) -> bytes:
+        return self.signature_functions.sign(private_key=private_key, data=data)
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -168,6 +176,13 @@ class DigitalSignature:
 
     def verify(self, public_key, data: bytes):
         self.scheme.verify(public_key=public_key, signature=self.signature, data=data)
+
+    @classmethod
+    def sign(cls, scheme: SignatureScheme, private_key, data: bytes) -> 'DigitalSignature':
+        return DigitalSignature(
+            scheme=scheme,
+            signature=scheme.sign(private_key=private_key, data=data),
+        )
 
 
 @attrs(auto_attribs=True, slots=True, frozen=True)

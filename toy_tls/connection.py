@@ -7,6 +7,8 @@ from enum import Enum, auto
 from functools import partial
 from typing import Type, TypeVar, Generic, Iterable, Sequence, Optional, List, Union
 
+import cryptography.x509
+from asn1crypto.x509 import Name
 from attr import attrs, attrib
 from attr.validators import instance_of
 from cryptography.exceptions import InvalidSignature
@@ -21,6 +23,7 @@ from toy_tls._data_reader import FullDataReader
 from toy_tls._data_writer import DataWriter, SupportsEncode
 from toy_tls._tls_record import TLSPlaintextRecord, TLSRecordEncoder, InitialTLSRecordEncoder, TLSRecordDecoder, \
     TLSRecordHeader, InitialTLSRecordDecoder
+from toy_tls.certificate import CertificateWithPrivateKey
 from toy_tls.content import ContentMessage, ContentType, ApplicationDataMessage
 from toy_tls.content.alert import AlertMessage, AlertLevel, AlertDescription
 from toy_tls.content.change_cipher_spec import ChangeCipherSpecMessage
@@ -28,10 +31,11 @@ from toy_tls.content.extensions.ec_points_formats import EllipticCurvePointForma
 from toy_tls.content.extensions.elliptic_curves import NamedCurveList
 from toy_tls.content.extensions.renegotiation_info import RenegotiationInfo
 from toy_tls.content.extensions.server_name import ServerNameList
-from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme
+from toy_tls.content.extensions.signature_algorithms import SupportedSignatureAlgorithms, SignatureScheme, \
+    DigitalSignature
 from toy_tls.content.handshake import HandshakeMessage, ClientHello, Extension, CipherSuite, HandshakeMessageType, \
     HandshakeMessageData, ServerHello, PeerCertificate, ServerKeyExchange, CertificateRequest, ServerHelloDone, \
-    ClientKeyExchange, Finished, HelloRequest
+    ClientKeyExchange, Finished, HelloRequest, CertificateVerify
 from toy_tls.validation import fixed_bytes
 
 logger = logging.getLogger(__name__)
@@ -129,10 +133,14 @@ class TLSNegotiationState:
             fixed_iv=server_write_iv,
         )
 
+    def encoded_handshake_messages(self) -> Iterable[bytes]:
+        for message in self.handshake_messages:
+            yield get_encoded_bytes(message)
+
     def compute_handshake_messages_hash(self) -> bytes:
         hash_context = Hash(algorithm=self.cipher_suite.hash_for_prf, backend=default_backend())
-        for message in self.handshake_messages:
-            hash_context.update(get_encoded_bytes(message))
+        for encoded_message in self.encoded_handshake_messages():
+            hash_context.update(encoded_message)
         return hash_context.finalize()
 
 
@@ -211,6 +219,7 @@ class TLSConnection:
     reader: StreamReader = attrib(kw_only=True)
     writer: StreamWriter = attrib(kw_only=True)
     hostname: str = attrib(kw_only=True)
+    client_certificate: Optional[CertificateWithPrivateKey] = attrib(kw_only=True)
 
     protocol_version: ProtocolVersion = attrib(init=False, default=ProtocolVersion.TLS_1_2)
 
@@ -422,19 +431,30 @@ class TLSConnection:
         # OPTION ClientCert: Receive Certificate Request
         try:
             certificate_request = await self._expect_handshake_message_of_type(CertificateRequest)
+            logger.info('Server requested client certificate.')
+            logger.info(f'Accepted certificate types: {[f"{ct.name}: {ct.value}" for ct in certificate_request.certificate_types]}')
+            logger.info(f'Accepted supported groups: {[f"{sa.name}: {sa.value:04x}" for sa in certificate_request.supported_signature_algorithms]}')
+            logger.info(f'START Accepted CA names ({len(certificate_request.certificate_authorities)})')
+            for ca in certificate_request.certificate_authorities:
+                logger.info(ca.human_friendly)
+            logger.info('END Accepted CA names')
         except UnexpectedMessageError:
             certificate_request = None
 
         await self._expect_handshake_message_of_type(ServerHelloDone)
 
         if certificate_request is not None:
-            # No option or argument to send a client certificate.
-            # Send an empty chain.
-            client_certificate = PeerCertificate(certificate_list=[])
+            using_certificate = self._check_client_certificate_usable(certificate_request=certificate_request)
+            if not using_certificate:
+                client_certificate = PeerCertificate(certificate_list=[])
+            else:
+                client_certificate = PeerCertificate(certificate_list=[self.client_certificate.certificate])
             await self._send_message(HandshakeMessage(
                 message_type=HandshakeMessageType.certificate,
                 data=client_certificate,
             ))
+        else:
+            using_certificate = False
 
         key_exchange = server_parameters.execute_key_exchange()
 
@@ -456,6 +476,25 @@ class TLSConnection:
         del key_exchange  # Delete key_exchange to avoid persistence of key_exchange.shared_secret.
 
         # OPTION ClientCert: Send Client Certificate Verify
+        if using_certificate and self.client_certificate.supports_signature():
+            client_public_key = self.client_certificate.certificate.public_key()
+            signature_scheme = next(
+                signature_algorithm
+                for signature_algorithm in certificate_request.supported_signature_algorithms
+                if signature_algorithm.is_compatible_with(client_public_key)
+            )
+            await self._send_message(
+                HandshakeMessage(
+                    message_type=HandshakeMessageType.certificate_verify,
+                    data=CertificateVerify(
+                        signature=DigitalSignature.sign(
+                            scheme=signature_scheme,
+                            private_key=self.client_certificate.private_key,
+                            data=b''.join(self.negotiation_state.encoded_handshake_messages()),
+                        ),
+                    )
+                )
+            )
 
         self.negotiation_state.initialize_codec()
 
@@ -495,6 +534,38 @@ class TLSConnection:
             raise TLSConnectionError(f'Server-sent hash does not match expected hash.')
 
         self.status = TLSConnectionStatus.established
+
+    def _check_client_certificate_usable(self, certificate_request: CertificateRequest) -> bool:
+        if self.client_certificate is None:
+            return False
+
+        if certificate_request.certificate_authorities:
+            client_certificate_issuer: cryptography.x509.Name = self.client_certificate.certificate.issuer
+            issuer_bytes = client_certificate_issuer.public_bytes(backend=default_backend())
+            asn1crypto_issuer = Name.load(issuer_bytes)
+            if asn1crypto_issuer not in certificate_request.certificate_authorities:
+                logger.warning(
+                    f'Cannot use certificate because it is signed by "f{asn1crypto_issuer.human_friendly}" '
+                    f'which is not in the list of accepted certificate authorities sent by the server.'
+                )
+                return False
+
+        client_public_key = self.client_certificate.certificate.public_key()
+        if not any(ct.is_compatible_with(client_public_key) for ct in certificate_request.certificate_types):
+            logger.warning(
+                f'Cannot use certificate because it has a {type(client_public_key).__name__} public key '
+                f'which is not in the server certificate types.'
+            )
+            return False
+
+        if not any(sa.is_compatible_with(client_public_key) for sa in certificate_request.supported_signature_algorithms):
+            logger.warning(
+                f'Cannot use certificate because it has a {type(client_public_key).__name__} public key '
+                f'which is not supported by any of the server supported signature algorithms.'
+            )
+            return False
+
+        return True
 
     async def _expect_handshake_message_of_type(self, t: Type[THandshakeMessageData]) -> THandshakeMessageData:
         next_message = await self._expect_handshake_message(HandshakeMessage)
