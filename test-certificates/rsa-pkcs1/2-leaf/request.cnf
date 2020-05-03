@@ -1,0 +1,17 @@
+[ req ]
+default_md         = sha256
+prompt             = no
+utf8               = yes
+distinguished_name = client
+req_extensions     = v3_client
+
+[ client ]
+C                  = ZZ
+O                  = toytls
+CN                 = toytls Client certificate 1.1.1
+
+[ v3_client ]
+subjectKeyIdentifier   = hash
+basicConstraints       = CA:false
+keyUsage               = digitalSignature
+extendedKeyUsage       = clientAuth

@@ -1,0 +1,16 @@
+[ req ]
+default_md         = sha256
+prompt             = no
+utf8               = yes
+distinguished_name = intermediate_dn
+req_extensions     = v3_ca
+
+[ intermediate_dn ]
+C                  = ZZ
+O                  = toytls
+CN                 = toytls Intermediate CA 1.1
+
+[ v3_ca ]
+subjectKeyIdentifier   = hash
+basicConstraints       = critical,CA:true
+keyUsage               = critical, keyCertSign
