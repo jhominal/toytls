@@ -1,3 +1,5 @@
+extensions         = v3_ca
+
 [ req ]
 default_md         = sha256
 prompt             = no
@@ -13,4 +15,4 @@ CN                 = toytls Root CA 1
 [ v3_ca ]
 subjectKeyIdentifier   = hash
 basicConstraints       = critical,CA:true
-keyUsage               = critical, keyCertSign
+keyUsage               = critical,keyCertSign

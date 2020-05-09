@@ -10,8 +10,8 @@ openssl req -new -key "$target/private.key" -out "$target/request.csr" -config "
 
 if [ "$parent" = "self" ]; then
   # Self-signed certificate
-  openssl x509 -in "$target/request.csr" -req -addtrust clientAuth -trustout -signkey "$target/private.key" -out "$target/certificate.crt"
+  openssl x509 -in "$target/request.csr" -req -addtrust clientAuth -trustout -signkey "$target/private.key" -extfile "$target/request.cnf" -out "$target/certificate.crt"
 else
   # Certificate signed by CA certificate
-  openssl x509 -in "$target/request.csr" -req -CA "$parent/certificate.crt" -CAkey "$parent/private.key" -CAcreateserial -out "$target/certificate.crt"
+  openssl x509 -in "$target/request.csr" -req -CA "$parent/certificate.crt" -CAkey "$parent/private.key" -CAcreateserial -extfile "$target/request.cnf" -out "$target/certificate.crt"
 fi
