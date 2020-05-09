@@ -5,7 +5,7 @@ from unittest import TestCase
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.hashes import SHA256, Hash
 
-from toy_tls.connection import run_prf
+from toy_tls._cipher_suites import CipherSuite
 
 
 class PrfFunctionTestCase(TestCase):
@@ -20,10 +20,14 @@ class PrfFunctionTestCase(TestCase):
             '916abf9da55973e13614ae0a3f5d3f37b023ba129aee02cc9134338127cd7049781c8e19fc1eb2a7387ac06ae237344c'
         )
 
-        actual_master_secret = run_prf(SHA256(), pre_master_secret, b'master secret', client_random + server_random, 48)
+        actual_master_secret = CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.run_prf(
+            pre_master_secret, b'master secret', client_random + server_random, 48
+        )
         self.assertEqual(expected_master_secret, actual_master_secret)
 
-        secret_bytes = run_prf(SHA256(), actual_master_secret, b'key expansion', server_random + client_random, 104)
+        secret_bytes = CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.run_prf(
+            actual_master_secret, b'key expansion', server_random + client_random, 104
+        )
         self.assertEqual(bytes.fromhex('1b7d117c7d5f690bc263cae8ef60af0f1878acc2'), secret_bytes[0:20])
         self.assertEqual(bytes.fromhex('2ad8bdd8c601a617126f63540eb20906f781fad2'), secret_bytes[20:40])
         self.assertEqual(bytes.fromhex('f656d037b173ef3e11169f27231a84b6'), secret_bytes[40:56])
@@ -104,8 +108,7 @@ class PrfFunctionTestCase(TestCase):
             handshake_messages_hash,
         )
 
-        verify_data = run_prf(
-            hash_algorithm=SHA256(),
+        verify_data = CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.run_prf(
             secret=bytes.fromhex('916abf9da55973e13614ae0a3f5d3f37b023ba129aee02cc9134338127cd7049781c8e19fc1eb2a7387ac06ae237344c'),
             label=b'client finished',
             seed=handshake_messages_hash,

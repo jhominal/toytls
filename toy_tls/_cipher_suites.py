@@ -6,11 +6,13 @@ from typing import Type, Tuple
 
 from attr import attrs, attrib
 from attr.validators import instance_of
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, SECP256R1, SECP384R1, SECP521R1
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x448 import X448PublicKey
 from cryptography.hazmat.primitives.hashes import SHA256, SHA384, HashAlgorithm
+from cryptography.hazmat.primitives.hmac import HMAC
 
 from toy_tls._data_reader import DataReader, SupportsDecode
 from toy_tls._data_writer import DataWriter
@@ -179,3 +181,23 @@ class CipherSuite(EnumUInt16WithData, ExtensibleEnum):
 
     def decode_server_parameters(self, reader: DataReader) -> ServerKeyExchangeParameters:
         return self.key_exchange_algorithm.server_parameters_type.decode(reader)
+
+    def run_prf(self, secret: bytes, label: bytes, seed: bytes, length: int):
+        if length <= 0:
+            raise ValueError(f'Length must be > 0 but was {length}')
+        initial_hmac = HMAC(key=secret, algorithm=self.hash_for_prf, backend=default_backend())
+
+        buf = bytearray()
+        iterated_a = label + seed
+        while len(buf) < length:
+            hmac_a = initial_hmac.copy()
+            hmac_a.update(iterated_a)
+            iterated_a = hmac_a.finalize()
+
+            hmac_p = initial_hmac.copy()
+            hmac_p.update(iterated_a)
+            hmac_p.update(label)
+            hmac_p.update(seed)
+            buf.extend(hmac_p.finalize())
+
+        return bytes(buf[:length])

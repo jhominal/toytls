@@ -14,8 +14,7 @@ from attr.validators import instance_of
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import constant_time
-from cryptography.hazmat.primitives.hashes import HashAlgorithm, Hash
-from cryptography.hazmat.primitives.hmac import HMAC
+from cryptography.hazmat.primitives.hashes import Hash
 from cryptography.x509 import Certificate
 
 from toy_tls._cipher_suites import IncompatiblePublicKeyError
@@ -64,27 +63,6 @@ class UnexpectedHandshakeMessageTypeError(UnexpectedMessageError):
     actual_type: HandshakeMessageType
 
 
-def run_prf(hash_algorithm: HashAlgorithm, secret: bytes, label: bytes, seed: bytes, length: int) -> bytes:
-    if length <= 0:
-        raise ValueError(f'Length must be > 0 but was {length}')
-    initial_hmac = HMAC(key=secret, algorithm=hash_algorithm, backend=default_backend())
-
-    buf = bytearray()
-    iterated_a = label + seed
-    while len(buf) < length:
-        hmac_a = initial_hmac.copy()
-        hmac_a.update(iterated_a)
-        iterated_a = hmac_a.finalize()
-
-        hmac_p = initial_hmac.copy()
-        hmac_p.update(iterated_a)
-        hmac_p.update(label)
-        hmac_p.update(seed)
-        buf.extend(hmac_p.finalize())
-
-    return bytes(buf[:length])
-
-
 def get_encoded_bytes(value: SupportsEncode) -> bytes:
     writer = DataWriter()
     writer.write(value)
@@ -106,8 +84,7 @@ class TLSNegotiationState:
 
     def initialize_codec(self):
         engine = self.cipher_suite.encryption_engine
-        key_material = run_prf(
-            hash_algorithm=self.cipher_suite.hash_for_prf,
+        key_material = self.cipher_suite.run_prf(
             secret=self.master_secret,
             label=b'key expansion',
             seed=self.server_random + self.client_random,
@@ -460,8 +437,7 @@ class TLSConnection:
 
         key_exchange = server_parameters.execute_key_exchange()
 
-        self.negotiation_state.master_secret = run_prf(
-            hash_algorithm=self.negotiation_state.cipher_suite.hash_for_prf,
+        self.negotiation_state.master_secret = self.negotiation_state.cipher_suite.run_prf(
             secret=key_exchange.shared_secret,
             label=b'master secret',
             seed=self.negotiation_state.client_random + self.negotiation_state.server_random,
@@ -504,8 +480,7 @@ class TLSConnection:
         self.encoder = self.negotiation_state.next_encoder
         self.next_sequence_number_to_send = 0
 
-        self.negotiation_state.client_verify_data = run_prf(
-            hash_algorithm=self.negotiation_state.cipher_suite.hash_for_prf,
+        self.negotiation_state.client_verify_data = self.negotiation_state.cipher_suite.run_prf(
             secret=self.negotiation_state.master_secret,
             label=b'client finished',
             seed=self.negotiation_state.compute_handshake_messages_hash(),
@@ -522,8 +497,7 @@ class TLSConnection:
         self.decoder = self.negotiation_state.next_decoder
         self.next_expected_sequence_number = 0
 
-        self.negotiation_state.server_verify_data = run_prf(
-            hash_algorithm=self.negotiation_state.cipher_suite.hash_for_prf,
+        self.negotiation_state.server_verify_data = self.negotiation_state.cipher_suite.run_prf(
             secret=self.negotiation_state.master_secret,
             label=b'server finished',
             seed=self.negotiation_state.compute_handshake_messages_hash(),
