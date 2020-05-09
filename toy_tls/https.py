@@ -60,8 +60,9 @@ async def run(
         f'\r\n'
     ).encode('ascii')
     await connection.send_application_data(data=http_data)
-    response_data = await connection.receive_application_data()
-    print(response_data.decode('utf-8'), file=sys.stdout)
+    while not connection.closed():
+        response_data = await connection.receive_application_data()
+        print(response_data.decode('utf-8'), file=sys.stdout)
 
 
 def main(

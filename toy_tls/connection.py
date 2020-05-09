@@ -190,6 +190,7 @@ class TLSConnectionStatus(Enum):
     initial_handshake = auto()
     established = auto()
     renegotiating = auto()
+    closed = auto()
 
 
 @attrs(auto_attribs=True, slots=True)
@@ -222,6 +223,16 @@ class TLSConnection:
                 description=description,
             )
         )
+
+    async def close(self):
+        await self._send_message(
+            AlertMessage(
+                level=AlertLevel.warning,
+                description=AlertDescription.close_notify,
+            )
+        )
+        self.writer.close()
+        self.status = TLSConnectionStatus.closed
 
     async def _send_message(self, message: ContentMessage, protocol_version: Optional[ProtocolVersion] = None):
         if isinstance(message, HandshakeMessage):
@@ -577,7 +588,10 @@ class TLSConnection:
         next_messages = await self._wait_for_next_messages()
         for m in next_messages:
             if isinstance(m, AlertMessage):
-                if m.level == AlertLevel.fatal:
+                if m.description == AlertDescription.close_notify:
+                    logger.info('Received close_notify alert.')
+                    await self.close()
+                elif m.level == AlertLevel.fatal:
                     logger.error('Received fatal alert %s', m.description)
                     raise TLSConnectionError('Handshake fatal alert', m)
                 else:
@@ -597,12 +611,15 @@ class TLSConnection:
 
     async def receive_application_data(self) -> bytes:
         if self.status != TLSConnectionStatus.established:
-            raise RuntimeError('Cannot receive application data while negotiation is ongoing.')
+            raise RuntimeError('Cannot receive application data while negotiation is ongoing, or connection is closed.')
 
-        while len(self.incoming_application_data) == 0:
+        while len(self.incoming_application_data) == 0 and self.status != TLSConnectionStatus.closed:
             await self._pump_messages()
             await self._check_for_renegotiation()
 
         result = b''.join(self.incoming_application_data)
         self.incoming_application_data.clear()
         return result
+
+    def closed(self):
+        return self.status == TLSConnectionStatus.closed
