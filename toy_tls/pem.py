@@ -1,7 +1,7 @@
 from __future__ import generator_stop
 
 from enum import Flag, auto, Enum
-from typing import Optional, Any, Protocol, BinaryIO, Iterable
+from typing import Optional, Any, Protocol, BinaryIO, Iterable, Sequence, List
 
 from attr import attrs, attrib
 from attr.validators import instance_of
@@ -125,6 +125,16 @@ def read_pem_objects(f: BinaryIO) -> Iterable[PemObject]:
                 current_object_builder = None
         elif PemObjectBuilder.match_first_line(line):
             current_object_builder = PemObjectBuilder(first_line=line)
+
+
+def load_certs(cert_files: Sequence[BinaryIO]) -> Sequence[Certificate]:
+    result: List[Certificate] = []
+    for cert_file in cert_files:
+        for pem_object in read_pem_objects(cert_file):
+            if pem_object.object_type == CryptoObjectType.Certificate:
+                pem_object.load()
+                result.append(pem_object.loaded_object)
+    return result
 
 
 def load_cert_and_key(

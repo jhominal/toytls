@@ -4,19 +4,25 @@ import asyncio
 import sys
 import logging
 from argparse import ArgumentParser, FileType
-from typing import BinaryIO, Optional
+from typing import BinaryIO, Optional, Sequence
 from urllib.parse import urlsplit, SplitResult, urlunsplit
 
 from toy_tls.certificate import KeyPairValidationError
 from toy_tls.connection import TLSConnection
-from toy_tls.pem import load_cert_and_key
+from toy_tls.pem import load_cert_and_key, load_certs
 
 logging.basicConfig(level='DEBUG')
 
 logger = logging.getLogger(__name__)
 
 
-async def run(url: str, cert_file: Optional[BinaryIO], key_file: Optional[BinaryIO], key_password: Optional[bytes]):
+async def run(
+        url: str,
+        cert_file: Optional[BinaryIO],
+        key_file: Optional[BinaryIO],
+        key_password: Optional[bytes],
+        cert_chain_files: Optional[Sequence[BinaryIO]],
+):
     if cert_file is not None:
         client_certificate = load_cert_and_key(cert_file=cert_file, key_file=key_file, key_password=key_password)
         try:
@@ -26,6 +32,10 @@ async def run(url: str, cert_file: Optional[BinaryIO], key_file: Optional[Binary
             client_certificate = None
     else:
         client_certificate = None
+    if client_certificate is not None and cert_chain_files is not None:
+        cert_chain = load_certs(cert_files=cert_chain_files)
+    else:
+        cert_chain = []
 
     parsed_url: SplitResult = urlsplit(url)
     port = parsed_url.port
@@ -33,7 +43,13 @@ async def run(url: str, cert_file: Optional[BinaryIO], key_file: Optional[Binary
     if port is None and parsed_url.scheme == 'https':
         port = 443
     reader, writer = await asyncio.open_connection(host=hostname, port=port, ssl=None)
-    connection = TLSConnection(reader=reader, writer=writer, hostname=hostname, client_certificate=client_certificate)
+    connection = TLSConnection(
+        reader=reader,
+        writer=writer,
+        hostname=hostname,
+        client_certificate=client_certificate,
+        certificate_chain=cert_chain,
+    )
     await connection.do_initial_handshake()
     relative_url = SplitResult(scheme='', netloc='', path=parsed_url.path, query=parsed_url.query, fragment='')
     http_data = (
@@ -48,9 +64,23 @@ async def run(url: str, cert_file: Optional[BinaryIO], key_file: Optional[Binary
     print(response_data.decode('utf-8'), file=sys.stdout)
 
 
-def main(url: str, cert_file: Optional[BinaryIO], key_file: Optional[BinaryIO], key_password: Optional[bytes]):
+def main(
+        url: str,
+        cert_file: Optional[BinaryIO],
+        key_file: Optional[BinaryIO],
+        key_password: Optional[bytes],
+        cert_chain_files: Optional[Sequence[BinaryIO]],
+):
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(run(url=url, cert_file=cert_file, key_file=key_file, key_password=key_password))
+    loop.run_until_complete(
+        run(
+            url=url,
+            cert_file=cert_file,
+            key_file=key_file,
+            key_password=key_password,
+            cert_chain_files=cert_chain_files,
+        )
+    )
     loop.close()
 
 
@@ -61,6 +91,7 @@ parser.add_argument('--cert', type=FileType('rb'), help='A client certificate to
 parser.add_argument('--key', type=FileType('rb'), help='The private key of the client certificate, in PEM format.')
 parser.add_argument('--key-password', help='The password to the private key, if it is encrypted.')
 parser.add_argument('--prompt-key-password', action='store_true', help='Prompt for the password to the private key.')
+parser.add_argument('--cert-chain', action='append', type=FileType('rb'), help='An element in the certificate chain, to send at the same time as the client certificate.')
 
 if __name__ == '__main__':
     arguments = parser.parse_args()
@@ -70,4 +101,10 @@ if __name__ == '__main__':
     else:
         key_pwd = arguments.key_password
 
-    main(url=arguments.url, cert_file=arguments.cert, key_file=arguments.key, key_password=key_pwd)
+    main(
+        url=arguments.url,
+        cert_file=arguments.cert,
+        key_file=arguments.key,
+        key_password=key_pwd,
+        cert_chain_files=arguments.cert_chain,
+    )

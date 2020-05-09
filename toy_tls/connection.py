@@ -16,6 +16,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import constant_time
 from cryptography.hazmat.primitives.hashes import HashAlgorithm, Hash
 from cryptography.hazmat.primitives.hmac import HMAC
+from cryptography.x509 import Certificate
 
 from toy_tls._cipher_suites import IncompatiblePublicKeyError
 from toy_tls._common import ProtocolVersion
@@ -220,6 +221,7 @@ class TLSConnection:
     writer: StreamWriter = attrib(kw_only=True)
     hostname: str = attrib(kw_only=True)
     client_certificate: Optional[CertificateWithPrivateKey] = attrib(kw_only=True)
+    certificate_chain: Sequence[Certificate] = attrib(kw_only=True, factory=list)
 
     protocol_version: ProtocolVersion = attrib(init=False, default=ProtocolVersion.TLS_1_2)
 
@@ -445,13 +447,13 @@ class TLSConnection:
 
         if certificate_request is not None:
             using_certificate = self._check_client_certificate_usable(certificate_request=certificate_request)
-            if not using_certificate:
-                client_certificate = PeerCertificate(certificate_list=[])
-            else:
-                client_certificate = PeerCertificate(certificate_list=[self.client_certificate.certificate])
+            certificate_list = []
+            if using_certificate:
+                certificate_list.append(self.client_certificate.certificate)
+                certificate_list.extend(self.certificate_chain)
             await self._send_message(HandshakeMessage(
                 message_type=HandshakeMessageType.certificate,
-                data=client_certificate,
+                data=PeerCertificate(certificate_list=certificate_list),
             ))
         else:
             using_certificate = False
