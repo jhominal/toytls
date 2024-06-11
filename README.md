@@ -11,6 +11,8 @@ confronted with any kind of adverse network conditions or unexpected/malformed T
 In other words, beyond its teaching value in helping understanding TLS, this library should not be
 used by anyone, for any purpose.
 
+If you want to learn more about TLS 1.2, I can only recommend looking at https://tls12.xargs.org/
+
 ## Dependencies
 
 The dependencies are listed in `requirements.txt`.
